@@ -1,0 +1,14 @@
+#
+# autocrlf guide
+# 	https://stackoverflow.com/questions/1967370/git-replacing-lf-with-crlf
+# 		If the project is only used under windows:
+# 			git config --local core.autocrlf false
+#
+# per repository settings
+# 	https://help.github.com/en/github/using-git/configuring-git-to-handle-line-endings#per-repository-settings
+# 		git add --renormalize .
+# 		git status
+# 		git commit -m "Normalize all the line endings"
+#
+* eol=lf
+*.sh eol=lf
