@@ -13,9 +13,6 @@
 SERVICE_MAIN_SRC="/root/wrtpresence_main.sh"
 SERVICE_MAIN_TMP="/tmp/wrtpresence_main.sh"
 # 
-SERVICE_JSON_SH_SRC="/root/json.sh"
-SERVICE_JSON_SH_TMP="/tmp/json.sh"
-# 
 SERVICE_MAIN_LOG="/tmp/wrtpresence.log"
 SERVICE_PID_FILE="/tmp/wrtpresence_main.sh.pid"
 SERVICE_EVENT_FIFO="/tmp/wrtpresence_main.sh.event_fifo"
@@ -149,19 +146,19 @@ case "$1" in
 		#
 		terminateOldInstances "${SHELL_INTERPRETER} ${SERVICE_MAIN_TMP}"
 		#
-		# Remove FIFO to prevent "wrtpresence_main.sh" getting indefinitely blocked.
+		# Remove FIFO to prevent "wrtpresence_main.sh" getting infinitely blocked.
 		if [ -e "${SERVICE_EVENT_FIFO}" ]; then
 			rm "${SERVICE_EVENT_FIFO}"
 		fi
 		exit 0
 		;;
 'showlog')
-		# Zeige Log des Dienstes.
+		# Show service log.
 		tail -n 60 "${SERVICE_MAIN_LOG}"
 		exit 0
 		;;
 'livelog')
-		# Show service log.
+		# Show service log with auto-refresh.
 		clear
 		while [ ! -f "${SERVICE_MAIN_LOG}" ]; do
 			clear
@@ -169,6 +166,30 @@ case "$1" in
 			sleep 1
 		done
 		tail -f "${SERVICE_MAIN_LOG}"
+		exit 0
+		;;
+'showstate')
+		# Show content of state files.
+		echo "*** associations.dto: =0 = PRESENT, >0 and <5 = PRESENT, disconnected, =5 = AWAY"
+		cat "/tmp/associations.dto"
+		echo ""
+		#
+		echo "*** present_devices.dto: Device names defined in main service script."
+		cat "/tmp/present_devices.dto";
+		echo ""
+		#
+		echo "*** wrtwifistareport last received unix time"
+		grep ".*" /tmp/*.last_wrtwifistareport | sed -e "s/^\/tmp\///g" -e "s/\.last_wrtwifistareport//g"
+		exit 0
+		;;
+'livestate')
+		# Show content of state files with auto-refresh.
+		clear
+		while (true); do
+			clear
+			sh "$(readlink -f $0)" showstate
+			sleep 1
+		done
 		exit 0
 		;;
 'diag')
@@ -193,5 +214,5 @@ case "$1" in
 		exit 0
 		;;		
 esac
-echo "Usage: $0 {start|debug|stop|reset|restart|showlog|livelog|ping|clean}"
+echo "Usage: $0 {start|debug|stop|reset|restart|showlog|livelog|showstate|livestate|diag|ping|clean}"
 exit 0
