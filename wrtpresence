@@ -1,0 +1,197 @@
+#/bin/sh
+#trap "" SIGHUP
+# 
+# Info:			Service Wrapper for main service script.
+# Usage:		This script gets called during embedded linux startup.
+# 
+#
+# Diagnostics, Maintenance, Installation, Prerequisites:
+# 	See main service script.
+#
+# Variables:
+#
+SERVICE_MAIN_SRC="/root/wrtpresence_main.sh"
+SERVICE_MAIN_TMP="/tmp/wrtpresence_main.sh"
+# 
+SERVICE_JSON_SH_SRC="/root/json.sh"
+SERVICE_JSON_SH_TMP="/tmp/json.sh"
+# 
+SERVICE_MAIN_LOG="/tmp/wrtpresence.log"
+SERVICE_PID_FILE="/tmp/wrtpresence_main.sh.pid"
+SERVICE_EVENT_FIFO="/tmp/wrtpresence_main.sh.event_fifo"
+SHELL_INTERPRETER="bash"
+#
+# ========================================
+# ======== FUNCTTION BLOCK START =========
+# ========================================
+createInstance ()
+{
+	#
+	# Usage: createInstance
+	#
+	# Check prerequisites.
+	#
+	if [ ! -f "${SERVICE_MAIN_SRC}" ]; then
+		echo "$0: Creating service instance FAILED. Install ${SERVICE_MAIN_SRC} first."
+		return
+	fi
+	#
+	# Update script copies in "/tmp".
+	#
+	if [ -f "${SERVICE_MAIN_TMP}" ]; then 
+		rm -f "${SERVICE_MAIN_TMP}"
+	fi
+	cat "${SERVICE_MAIN_SRC}" > "${SERVICE_MAIN_TMP}"
+	#
+	# Set executable and security permissions.
+	#
+	chmod +rx "${SERVICE_MAIN_TMP}"
+	#
+	# Run service instance.
+	# 
+	if [ -f "/bin/${SHELL_INTERPRETER}" ]; then
+		echo "$0: Creating new service instance ..."
+		set -m
+		/bin/${SHELL_INTERPRETER} "${SERVICE_MAIN_TMP}" "${DEBUG_MODE}" > /dev/null &
+	else
+		echo "$0: Creating service instance FAILED. Install ${SHELL_INTERPRETER} first."
+	fi
+	return
+}
+
+findProcess ()
+{
+	# 
+	# Usage: findProcess <ps result line>
+	#
+	# Purpose: Searches for previously set environment variable "LOOK_FOR_PROCESS".
+	#
+	# We got a line from ps similar to:
+	# [ ]9396 nobody   13952 S    /usr/bin/httpd
+	# 
+	TEMP_RESULT=$(echo -n "$1" | grep -v grep | grep "$LOOK_FOR_PROCESS")
+	#
+	# Check if we found process specified in "LOOK_FOR_PROCESS".
+	#
+	if test "$TEMP_RESULT"; then
+		#
+		# Exclude our own PID from results.
+		#
+		MY_PID=$$
+		GOT_PID=$(echo -n "$1" | sed 's/ \+/|/g' | sed 's/^|//' | cut -d '|' -f 1)
+		if [ "$MY_PID" != "$GOT_PID" ]; then
+			if [ "$NEED_SEPARATOR_ONCE" -eq "0" ]; then
+				NEED_SEPARATOR_ONCE=1
+			else
+				echo -n " "
+			fi
+			echo -n "$GOT_PID"
+		fi
+	fi
+	# 
+	return
+}
+#
+terminateOldInstances ()
+{
+	# 
+	# Usage: terminateOldInstances <name_of_instance>
+	# 
+	
+	# 
+	# Detect and kill any previously running instances of this service.
+	# 
+	NEED_SEPARATOR_ONCE=0
+	LOOK_FOR_PROCESS="$1"
+	PS_LIST="$(ps w)"
+	PROC_KILL_LIST=$(echo -e "$PS_LIST" | while read file; do findProcess "${file}"; done)
+	if test "$PROC_KILL_LIST"; then
+		echo "$0: Terminating old \"$LOOK_FOR_PROCESS\" instance(s) #$PROC_KILL_LIST ..."
+		kill $PROC_KILL_LIST
+	fi
+	# 
+	return
+}
+# ========================================
+# ======== FUNCTTION BLOCK END =========
+# ========================================
+#
+# ! Not supported on BusyBox routers.
+#. /lib/lsb/init-functions
+#
+#
+# Service instance control main.
+#
+DEBUG_MODE=""
+
+case "$1" in
+'debug')
+		# Set DEBUG_MODE to ON.
+		DEBUG_MODE="debug"
+		;;
+esac
+
+
+case "$1" in
+'start' | 'reset' | 'restart' | 'debug')
+		sh $0 stop
+		#
+		# Run service main in a new instance.
+		createInstance
+		#
+		exit 0
+		;;
+'stop')
+		if [ -f "${SERVICE_PID_FILE}" ]; then
+			kill -INT "$(cat "${SERVICE_PID_FILE}")"
+			rm "${SERVICE_PID_FILE}"
+		fi
+		#
+		terminateOldInstances "${SHELL_INTERPRETER} ${SERVICE_MAIN_TMP}"
+		#
+		# Remove FIFO to prevent "wrtpresence_main.sh" getting indefinitely blocked.
+		if [ -e "${SERVICE_EVENT_FIFO}" ]; then
+			rm "${SERVICE_EVENT_FIFO}"
+		fi
+		exit 0
+		;;
+'showlog')
+		# Zeige Log des Dienstes.
+		tail -n 60 "${SERVICE_MAIN_LOG}"
+		exit 0
+		;;
+'livelog')
+		# Show service log.
+		clear
+		while [ ! -f "${SERVICE_MAIN_LOG}" ]; do
+			clear
+			echo "[ERROR] Log ${SERVICE_MAIN_LOG} does not exist. Waiting ..."
+			sleep 1
+		done
+		tail -f "${SERVICE_MAIN_LOG}"
+		exit 0
+		;;
+'diag')
+		ps w | egrep "presence|tail|logread" | grep -v "grep" | grep -v "livelog" | grep -v "diag"
+		exit 0
+		;;
+'ping')
+		if [ -e "${SERVICE_EVENT_FIFO}" ]; then
+			echo "$0: Sending PING to service fifoconsumer ..."
+			echo "ping" >> "${SERVICE_EVENT_FIFO}"
+		else
+			echo "$0: [ERROR] Failed to send PING to service fifoconsumer, FIFO does not exist."
+		fi
+		exit 0
+		;;
+'clean')
+		# rm -f "${SERVICE_MAIN_LOG}"
+		rm -f "/tmp/associations.dto"
+		rm -f "/tmp/present_devices.dto"
+		# 
+		echo "$0: [INFO] Cleanup done."
+		exit 0
+		;;		
+esac
+echo "Usage: $0 {start|debug|stop|reset|restart|showlog|livelog|ping|clean}"
+exit 0
