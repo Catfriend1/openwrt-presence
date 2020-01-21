@@ -6,3 +6,10 @@ Will be copied here as soon as the script is finished. See the script for instru
 
 # Support
 Support, ideas, feedback appreciated via issue or at: https://forum.openwrt.org/t/script-how-to-get-a-mac-address-and-device-presence-list-of-authorized-wifi-clients-across-all-aps
+
+# Showroom
+- "sh /root/wrtpresence livelog"
+
+´´´
+a
+´´´
