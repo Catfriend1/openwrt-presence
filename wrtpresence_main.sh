@@ -1,0 +1,622 @@
+#/bin/bash
+trap "" SIGHUP
+#
+trap "trap - SIGTERM && kill -- -$$" SIGINT SIGTERM EXIT
+#
+# Notes
+#
+# while (true); do clear; echo "*** associations.dto"; cat "/tmp/associations.dto"; echo "*** present_devices.dto"; cat "/tmp/present_devices.dto"; sleep 1; done
+# 
+# set +m
+#
+# Filename:			wrtpresence_main.sh
+# Usage:			Instanced by service wrapper.
+# Purpose:			Tracks STA client associations across a WiFi backed by multiple APs.
+# 
+# Installation:
+# 	=========================
+# 	== MASTER ACCESS POINT ==
+# 	=========================
+# 		... where this script is executed.
+# 	opkg update
+# 	opkg install bash
+# 	opkg install syslog-ng
+# 	chmod +x "/root/wrtpresence"
+# 	chmod +x "/root/wrtpresence_main.sh"
+# 
+# 	LUCI / System / Startup / Local Startup
+# 		# sh /root/wrtpresence start
+# 
+# 	LUCI / System / System / Logging
+# 		External system log server
+# 			127.0.0.1
+# 		Cron Log Level
+# 			Warning
+# 
+# 	chmod +x "/root/wrtwifistareport.sh"
+# 	LUCI: System / Scheduled Tasks / Add new row
+# 		*/5 * * * * /bin/sh "/root/wrtwifistareport.sh" >/dev/null 2>&1
+# 	Restart Cron:
+# 		/etc/init.d/cron restart
+# 
+# 	========================
+# 	== SLAVE ACCESS POINT ==
+# 	========================
+# 		... where WiFi STA clients may roam to/from.
+# 	LUCI / System / System / Logging
+# 		External system log server
+# 			[IP_ADDRESS_OF_MASTER_ACCESS_POINT]
+# 		Cron Log Level
+# 			Warning	
+# 
+# 	chmod +x "/root/wrtwifistareport.sh"
+# 	LUCI: System / Scheduled Tasks / Add new row
+# 		*/5 * * * * /bin/sh "/root/wrtwifistareport.sh" >/dev/null 2>&1
+# 	Restart Cron:
+# 		/etc/init.d/cron restart	
+#
+# Diagnostics:
+#	Cleanup, Reset:
+#		sh /root/wrtpresence clean
+#	Logging and Monitoring:
+#		sh /root/wrtpresence debug	
+#		sh /root/wrtpresence livelog
+#		sh /root/wrtpresence showlog
+#
+# Prerequisites:
+# 	Configuration
+#		LUCI / System /System / Logging
+# 			External system log server
+# 				127.0.0.1
+# 		/etc/config/system
+# 			option log_ip '127.0.0.1'
+#	Files 
+# 		wrtpresence								main service wrapper
+# 		wrtpresence_main.sh						main service program
+# 		wrtwifistareport.sh						cron job script for sync in case events got lost during reboot
+# 	Packages
+# 		bash									required for arrays
+# 		syslog-ng								required for log collection from other APs
+# 
+#
+# FIFO output line examples:
+# 	"G/CONSOLIDATED_PRESENCE_STATE=away"
+# 	"G/CONSOLIDATED_PRESENCE_STATE=present"
+# 	"DEV/[DEVICE_NAME]=away"
+# 	"DEV/[DEVICE_NAME]=present"
+# 	
+#
+# For testing purposes only:
+# 	killall logread; killall tail; sh wrtpresence stop; bash wrtpresence_main.sh debug
+# 	kill -INT "$(cat "/tmp/wrtpresence_main.sh.pid")"
+# 
+#
+# ====================
+# Device Configuration
+# ====================
+#
+# 0: 
+DEVICE_NAME[0]="Test-Mobile-1"
+DEVICE_MAC[0]="aa:bb:cc:dd:ee:ff"
+#
+# 1: 
+DEVICE_NAME[1]="Test-Mobile-2"
+DEVICE_MAC[1]="aa:bb:cc:dd:ff:ee"
+#
+#
+# ====================
+# Script Configuration
+# ====================
+PATH=/usr/bin:/usr/sbin:/sbin:/bin
+# CURRENT_SCRIPT_PATH="$(cd "$(dirname "$0")"; pwd)"
+EVENT_FIFO=/tmp/"$(basename "$0")".event_fifo
+PID_FILE=/tmp/"$(basename "$0")".pid
+LOGFILE="/tmp/wrtpresence.log"
+LOG_MAX_LINES="1000"
+DEBUG_MODE="0"
+REPORT_CONSOLIDATED_PRESENCE_TO_FIFO="0"
+#
+# External script FIFOs.
+GASERVICE_FIFO="/tmp/wrtgaservice_main.sh.event_fifo"
+#
+# Internal script DTOs.
+ASSOCIATIONS_DTO="/tmp/associations.dto"
+#
+# External script DTOs.
+PRESENT_DEVICES_DTO="/tmp/present_devices.dto"
+#
+# Timing Configuration.
+#
+IDXBUMP_SLEEP_SECONDS="60"
+DEVICE_DISCONNECTED_IDX="5"
+#
+# Variables: RUNTIME.
+MY_SERVICE_NAME="$(basename "$0")"
+#
+# -----------------------
+# --- Function Import ---
+# -----------------------
+# if [ ! -f "${CURRENT_SCRIPT_PATH}/wrtpresence_helper.sh" ]; then
+# 	(>&2 echo "${MY_SERVICE_NAME}: [ERROR] Include file 'wrtpresence_helper.sh' is missing. Service terminated.")
+# 	exit 99
+# fi
+# 
+# -----------------------------------------------------
+# -------------- START OF FUNCTION BLOCK --------------
+# -----------------------------------------------------
+logAdd ()
+{
+	TMP_DATETIME="$(date '+%Y-%m-%d [%H-%M-%S]')"
+	TMP_LOGSTREAM="$(tail -n ${LOG_MAX_LINES} ${LOGFILE} 2>/dev/null)"
+	echo "${TMP_LOGSTREAM}" > "$LOGFILE"
+	if [ "$1" == "-q" ]; then
+		#
+		# Quiet mode.
+		#
+		echo "${TMP_DATETIME} ${@:2}" >> "${LOGFILE}"
+	else
+		#
+		# Loud mode.
+		#
+		echo "${TMP_DATETIME} $*" | tee -a "${LOGFILE}"
+	fi
+	return
+}
+
+fifoOut ()
+{
+	fifoOut_do "${GASERVICE_FIFO}" "$1"
+}
+
+fifoOut_do ()
+{
+	#
+	# Usage:		fifoOut_do [FIFO_FULLFN] [TEXT_CONTENT_WITHOUT_SPACES]
+	#
+	if [ ! -e "$1" ]; then
+		logAdd -q "[ERROR] FIFO does not exist for FIFO-OUT [$2] to $1"
+		return
+	fi
+	logAdd -q "[INFO] FIFO-OUT [$2] to $1"
+	( echo "$2" >> "$1" ) &
+}
+
+plCheckDevicesByCounters() {
+	#
+	# Usage:			plCheckDevicesByCounters
+	# Example:			plCheckDevicesByCounters
+	# Called by:		plAddClient, disconnectIdxBumper
+	# Returns:			< nothing >
+	#
+	# Global Variables.
+	# 	[IN] ASSOCIATIONS_DTO
+	#
+	# Variables.
+	DPTE_DEVICE_COUNT="${#DEVICE_MAC[*]}"
+	#
+	# For testing purposes only.
+	# logAdd -q "plCheckDevicesByCounters: triggered"
+	# 
+	touch "${PRESENT_DEVICES_DTO}"
+	touch "${PRESENT_DEVICES_DTO}.new"
+	# 
+	# Loop through configured DEVICE ARRAY.
+	DPTE_DEVICE_I="0"
+	while (true); do
+		#
+		# Are we done yet?
+		#
+		if [ ${DPTE_DEVICE_I} -eq ${DPTE_DEVICE_COUNT} ]; then
+			break;
+		fi
+		#
+		if (cat "${ASSOCIATIONS_DTO}" 2> /dev/null | grep -Fi "=${DEVICE_MAC[${DPTE_DEVICE_I}]}=" | grep -vq "=${DEVICE_DISCONNECTED_IDX}$"); then
+			# 
+			# Device PRESENT.
+			echo "${DEVICE_NAME[${DPTE_DEVICE_I}]}" >> "${PRESENT_DEVICES_DTO}.new"
+			# 
+			# Did the device state change from AWAY to PRESENT?
+			if ( ! grep -iq "${DEVICE_NAME[${DPTE_DEVICE_I}]}$" "${PRESENT_DEVICES_DTO}" ); then
+				#
+				# DEVICE_ACTION_PRESENT.
+				#
+				fifoOut "DEV/${DEVICE_NAME[${DPTE_DEVICE_I}]}=present"
+				#
+			fi
+		else
+			# 
+			# Device AWAY.
+			# 
+			# Did the device state change from PRESENT to AWAY?
+			if ( grep -iq "${DEVICE_NAME[${DPTE_DEVICE_I}]}$" "${PRESENT_DEVICES_DTO}" ); then
+				#
+				# DEVICE_ACTION_AWAY.
+				# 
+				fifoOut "DEV/${DEVICE_NAME[${DPTE_DEVICE_I}]}=away"
+				#
+			fi
+		fi
+		#
+		# Continue with next device.
+		DPTE_DEVICE_I="$((DPTE_DEVICE_I+1))"
+		#
+	done
+	# 
+	if [ "${REPORT_CONSOLIDATED_PRESENCE_TO_FIFO}" == "1" ]; then
+		# Did the consolidated presence state change?
+		if [ -s "${PRESENT_DEVICES_DTO}.new" ]; then
+			# New state: CONSOLIDATED_DEVICE_STATE=PRESENT
+			if [ ! -s "${PRESENT_DEVICES_DTO}" ]; then
+				# Previous state: CONSOLIDATED_DEVICE_STATE=AWAY
+				logAdd -q "[INFO] CONSOLIDATED_PRESENCE_STATE=present"
+				fifoOut "G/CONSOLIDATED_PRESENCE_STATE=present"
+			fi
+		else
+			# New state: CONSOLIDATED_DEVICE_STATE=AWAY
+			if [ -s "${PRESENT_DEVICES_DTO}" ]; then
+				# Previous state: CONSOLIDATED_DEVICE_STATE=PRESENT
+				logAdd -q "[INFO] CONSOLIDATED_PRESENCE_STATE=away"
+				fifoOut "G/CONSOLIDATED_PRESENCE_STATE=away"
+			fi
+		fi
+	fi
+	# 
+	# Overwrite last state with new state.
+	mv "${PRESENT_DEVICES_DTO}.new" "${PRESENT_DEVICES_DTO}"
+	#
+	return
+}
+
+plAddClient() {
+	#
+	# Usage:			plAddClient [STATION_NAME] [CLIENT_MAC_ADDR] [TEXT_REASON]
+	# Example:			plAddClient "WifiAP-01_wlan0-4" "aa:bb:cc:dd:ee:ff" "AP-STA-CONNECTED"
+	# Called by:		logreader
+	# Returns:			< nothing >
+	#
+	# Global Variables.
+	# 	[IN] ASSOCIATIONS_DTO
+	#
+	# Variables.
+	TMP_PLAC_STATION_NAME="${1}"
+	TMP_PLAC_MAC_ADDR="${2}"
+	TMP_PLAC_TEXT_REASON="${3}"
+	# 
+	if [ ! -f "${ASSOCIATIONS_DTO}" ]; then
+		touch "${ASSOCIATIONS_DTO}"
+	fi
+	# 
+	if ( ! grep -F -q -i "${TMP_PLAC_STATION_NAME}=${TMP_PLAC_MAC_ADDR}=" "${ASSOCIATIONS_DTO}" ); then
+		logAdd -q "plAddClient: ${TMP_PLAC_STATION_NAME} +${TMP_PLAC_MAC_ADDR} reason: ${TMP_PLAC_TEXT_REASON}"
+		# "=0" means connected.
+		echo "${TMP_PLAC_STATION_NAME}=${TMP_PLAC_MAC_ADDR}=0" >> "${ASSOCIATIONS_DTO}"
+		cat "${ASSOCIATIONS_DTO}" 2>/dev/null | sort > "${ASSOCIATIONS_DTO}.tmp"
+		mv "${ASSOCIATIONS_DTO}.tmp" "${ASSOCIATIONS_DTO}"
+	else
+		logAdd -q "plAddClient: ${TMP_PLAC_STATION_NAME} ${TMP_PLAC_MAC_ADDR}=0 reason: ${TMP_PLAC_TEXT_REASON}"
+		sed -i "s/^${TMP_PLAC_STATION_NAME}\=${TMP_PLAC_MAC_ADDR}\=.*$/${TMP_PLAC_STATION_NAME}\=${TMP_PLAC_MAC_ADDR}\=0/gI" "${ASSOCIATIONS_DTO}"
+	fi
+	# 
+	plCheckDevicesByCounters
+	#
+	return
+}
+
+plMarkClientAsDisconnected() {
+	#
+	# Usage:			plMarkClientAsDisconnected [STATION_NAME] [CLIENT_MAC_ADDR] [TEXT_REASON]
+	# Example:			plMarkClientAsDisconnected "WifiAP-01" "aa:bb:cc:dd:ee:ff" "AP-STA-DISCONNECTED"
+	# Called by:		logreader
+	# Returns:			< nothing >
+	#
+	# Global Variables.
+	# 	[IN] ASSOCIATIONS_DTO
+	#
+	# Variables.
+	TMP_PLAC_STATION_NAME="${1}"
+	TMP_PLAC_MAC_ADDR="${2}"
+	TMP_PLAC_TEXT_REASON="${3}"
+	# 
+	if [ ! -f "${ASSOCIATIONS_DTO}" ]; then
+		touch "${ASSOCIATIONS_DTO}"
+	fi
+	# 
+	if ( grep -F -q -i "${TMP_PLAC_STATION_NAME}=${TMP_PLAC_MAC_ADDR}=" "${ASSOCIATIONS_DTO}" ); then
+		logAdd -q "plMarkClientAsDisconnected: ${TMP_PLAC_STATION_NAME} -${TMP_PLAC_MAC_ADDR} reason: ${TMP_PLAC_TEXT_REASON}"
+		# ">0" means disconnected.
+		sed -i "s/${TMP_PLAC_STATION_NAME}\=${TMP_PLAC_MAC_ADDR}\=0/${TMP_PLAC_STATION_NAME}\=${TMP_PLAC_MAC_ADDR}\=1/gI" "${ASSOCIATIONS_DTO}"
+	else
+		logAdd -q "plMarkClientAsDisconnected: ${TMP_PLAC_STATION_NAME} -${TMP_PLAC_MAC_ADDR} reason: ${TMP_PLAC_TEXT_REASON} - Skipping, client not present in DTO."
+	fi
+	#
+	return
+}
+
+plRemoveClient() {
+	#
+	# Usage:			plRemoveClient [STATION_NAME] [CLIENT_MAC_ADDR]
+	# Example:			plRemoveClient "WifiAP-01" "aa:bb:cc:dd:ee:ff"
+	# Called by:		-
+	# Returns:			< nothing >
+	#
+	# Global Variables.
+	# 	[IN] ASSOCIATIONS_DTO
+	#
+	# Variables.
+	TMP_PLAC_STATION_NAME="${1}"
+	TMP_PLAC_MAC_ADDR="${2}"
+	# 
+	if [ ! -f "${ASSOCIATIONS_DTO}" ]; then
+		touch "${ASSOCIATIONS_DTO}"
+	fi
+	# 
+	if ( grep -F -q -i "${TMP_PLAC_STATION_NAME}=${TMP_PLAC_MAC_ADDR}=" "${ASSOCIATIONS_DTO}" ); then
+		logAdd -q "plRemoveClient: ${TMP_PLAC_STATION_NAME} -${TMP_PLAC_MAC_ADDR}"
+		sed -i "/^${TMP_PLAC_STATION_NAME}\=${TMP_PLAC_MAC_ADDR}\=.*$/d" "${ASSOCIATIONS_DTO}"
+	else
+		logAdd -q "plRemoveClient: ${TMP_PLAC_STATION_NAME} -${TMP_PLAC_MAC_ADDR} - Skipping, client not present in DTO."
+	fi
+	#
+	return
+}
+
+logreader() {
+	#
+	# Called by:	MAIN
+	#
+	# Global Variables.
+	# 	[IN] ASSOCIATIONS_DTO
+	# 
+	logAdd -q "[INFO] BEGIN logreader_loop"
+	#
+	LOGREAD_BIN="$(which logread)"
+	if [ "${LOGREAD_BIN}" == "/usr/sbin/logread" ]; then
+		# /usr/sbin/logread - provided by package "syslog-ng"
+		LOGREAD_SOURCE_PREFIX="WifiAP-.."
+	else
+		# /sbin/logread - OpenWRT default
+		LOGREAD_SOURCE_PREFIX="daemon\.notice"
+	fi
+	#
+	${LOGREAD_BIN} -f | while read line; do
+		if $(echo -n "${line}" | grep -q "${LOGREAD_SOURCE_PREFIX}.*hostapd.*\(AP-STA-CONNECTED\|AP-STA-DISCONNECTED\)"); then
+			if $(echo -n "${line}" | grep -q "AP-STA-CONNECTED"); then
+				STATION_NAME="$(echo -n "${line}" | grep -o "${LOGREAD_SOURCE_PREFIX}")"
+				WIFI_IF_NAME="$(echo -n "${line}" | grep -o -E "wlan[[:xdigit:]]{1}(-[[:xdigit:]]{1,})?")"
+				MAC_ADDR="$(echo -n "${line}" | grep -o -E "([[:xdigit:]]{1,2}:){5}[[:xdigit:]]{1,2}")"
+				# fifoOut_do "${EVENT_FIFO}" "CONNECT: ${MAC_ADDR} on ${STATION_NAME}"
+				plAddClient "${STATION_NAME}_${WIFI_IF_NAME}" "${MAC_ADDR}" "AP-STA-CONNECTED"
+			elif $(echo -n "${line}" | grep -q "AP-STA-DISCONNECTED"); then
+				STATION_NAME="$(echo -n "${line}" | grep -o "${LOGREAD_SOURCE_PREFIX}")"
+				WIFI_IF_NAME="$(echo -n "${line}" | grep -o -E "wlan[[:xdigit:]]{1}(-[[:xdigit:]]{1,})?")"
+				MAC_ADDR="$(echo -n "${line}" | grep -o -E "([[:xdigit:]]{1,2}:){5}[[:xdigit:]]{1,2}")"
+				# fifoOut_do "${EVENT_FIFO}" "DISCONNECT: ${MAC_ADDR} on ${STATION_NAME}"
+				plMarkClientAsDisconnected "${STATION_NAME}_${WIFI_IF_NAME}" "${MAC_ADDR}" "AP-STA-DISCONNECTED"
+			fi
+		elif $(echo -n "${line}" | grep -q "${LOGREAD_SOURCE_PREFIX}.*wrtwifistareport: ;.*"); then
+			STATION_NAME="$(echo -n "${line}" | grep -o "${LOGREAD_SOURCE_PREFIX}")"
+			WIFI_STA_LIST="$(echo -n "${line}" | cut -d ";" -f 2)"
+			# logAdd -q "logreader: Got wrtwifistareport: [${WIFI_STA_LIST}] on [${STATION_NAME}]"
+			# 
+			# We need to update our associations cache according to the full report of active STA clients
+			# for the given STATION_NAME.
+			if [ ! -f "${ASSOCIATIONS_DTO}" ]; then
+				touch "${ASSOCIATIONS_DTO}"
+			fi
+			# 
+			# Step 1: Check for associations we did not know they were active.
+			echo -e "$(echo "${WIFI_STA_LIST}" | sed -r -e "s/\|/\\\n/g")" | while read wifiif_macaddr; do
+				if [ ! -z "${wifiif_macaddr}" ]; then
+					WIFI_IF_NAME="$(echo "${wifiif_macaddr}" | cut -d "," -f 1)"
+					MAC_ADDR="$(echo "${wifiif_macaddr}" | cut -d "," -f 2)"
+					#
+					# For testing purposes only.
+					# logAdd -q "logreader: wrtwifistareport[1]: ... macaddr=[${MAC_ADDR}] on wifiif=[${WIFI_IF_NAME}]"
+					#
+					# MAC address already in DTO?
+					if ( ! grep -q -i "^${STATION_NAME}_${WIFI_IF_NAME}=${MAC_ADDR}=0$" "${ASSOCIATIONS_DTO}" ); then
+						# logAdd -q "logreader: wrtwifistareport: MAC [${MAC_ADDR}] missing - Adding."
+						plAddClient "${STATION_NAME}_${WIFI_IF_NAME}" "${MAC_ADDR}" "wrtwifistareport"
+					fi
+				fi
+			done
+			#
+			# Step 2: Check for associations we still know but they are outdated because of missed
+			# disconnect events.
+			cat "${ASSOCIATIONS_DTO}" 2>/dev/null | grep "^${STATION_NAME}_" | grep "=0$" | while read line; do
+				if [ ! -z "${line}" ]; then
+					WIFI_IF_NAME="$(echo "${line}" | cut -d "=" -f 1 | cut -d "_" -f 2)"
+					MAC_ADDR="$(echo "${line}" | cut -d "=" -f 2)"
+					#
+					# For testing purposes only.
+					# logAdd -q "logreader: wrtwifistareport[2]: ... macaddr=[${MAC_ADDR}] on wifiif=[${WIFI_IF_NAME}]"
+					#
+					# For testing purposes only.
+					# 	logger -t "wrtwifistareport" ";"
+					# 
+					if ( ! echo -e "$(echo "${WIFI_STA_LIST}" | sed -r -e "s/\|/\\\n/g")" | grep -i -q "^${WIFI_IF_NAME},${MAC_ADDR}$" ); then
+						# logAdd -q "logreader: wrtwifistareport: MAC [${MAC_ADDR}] no longer associated - Marking as disconnected."
+						plMarkClientAsDisconnected "${STATION_NAME}_${WIFI_IF_NAME}" "${MAC_ADDR}" "wrtwifistareport"
+					fi
+					# 
+				fi
+			done
+			#
+		fi
+	done
+}
+
+disconnectIdxBumper() {
+	#
+	# Called by:	MAIN
+	#
+	# Global Variables.
+	# 	[IN] ASSOCIATIONS_DTO
+	# 
+	# Variables.
+	LOOP_CNT=0
+	logAdd -q "[INFO] BEGIN disconnectIdxBumper_loop"
+	while true
+	do
+		LOOP_CNT="$((LOOP_CNT+1))"
+		# echo "${LOOP_CNT}" >> "${EVENT_FIFO}"
+		# logAdd -q "disconnectIdxBumper: LOOP_CNT=[${LOOP_CNT}]"
+		#
+		# Only grab rows from disconnected devices.
+		cat "${ASSOCIATIONS_DTO}" 2>/dev/null | grep -v "=0$" | while read line; do
+			# 
+			# Get current counter state.
+			TMP_PREFIX="$(echo -n "${line}" | cut -d "=" -f 1,2)"
+			TMP_DIB_COUNTER="$(echo -n "${line}" | cut -d "=" -f 3)"
+			TMP_LAST_DIB_COUNTER="${TMP_DIB_COUNTER}"
+			# 
+			# Bump the disconnect counter.
+			if [ ${TMP_DIB_COUNTER} -lt ${DEVICE_DISCONNECTED_IDX} ]; then
+				TMP_DIB_COUNTER="$((TMP_DIB_COUNTER+1))"
+				sed -i "s/${TMP_PREFIX}\=.*$/${TMP_PREFIX}\=${TMP_DIB_COUNTER}/g" "${ASSOCIATIONS_DTO}"
+			fi
+			# 
+			# If a counter is at max, the disconnected device is considered away from all APs.
+			if [ ${TMP_DIB_COUNTER} -ne ${TMP_LAST_DIB_COUNTER} ]; then
+				if [ ${TMP_DIB_COUNTER} -eq ${DEVICE_DISCONNECTED_IDX} ]; then
+					plCheckDevicesByCounters
+				fi
+			fi
+			#
+		done
+		#
+		sleep ${IDXBUMP_SLEEP_SECONDS}
+	done
+}
+# ---------------------------------------------------
+# -------------- END OF FUNCTION BLOCK --------------
+# ---------------------------------------------------
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+#
+# Check prerequisites.
+if [ -f "/usr/sbin/syslog-ng" ]; then
+	# syslog-ng is installed.
+	# Check if 'external log server ip' is set correctly to forward the local logread to syslog-ng.
+	if ( ! grep -q "option log_ip '127\.0\.0\.1'$" "/etc/config/system" ); then
+		logAdd "[ERROR] You are using syslog-ng without forwarding the local syslog output to it. Set \"option log_ip '127.0.0.1'\". Stop."
+		exit 99
+	fi
+	#
+else
+	logAdd "[WARN] syslog-ng is not installed. Only this AP will be monitored. Run \"opkg install syslog-ng\" if you need to monitor multiple APs."
+fi
+# 
+if ( ! grep -q "option cronloglevel '9'$" "/etc/config/system" ); then
+	logAdd "[WARN] Cron log level is not reduced to \"warning\" in \"/etc/config/system\". Set \"option cronloglevel '9'\"."
+fi
+# 
+if [ ! -f "/root/wrtwifistareport.sh" ]; then
+	logAdd "[ERROR] File missing: \"/root/wrtwifistareport.sh\". Stop."
+	exit 99
+fi
+# 
+if ( ! grep -Fq "/root/wrtwifistareport.sh" "/etc/crontabs/root" ); then
+	logAdd "[ERROR] Missing cron job for \"wrtwifistareport\". Stop."
+	exit 99
+fi
+#
+# Check commmand line parameters.
+case "$1" in 
+'debug')
+	# Turn DEBUG_MODE on.
+	DEBUG_MODE="1"
+	# Continue script execution.
+	;;
+esac
+#
+# Service Startup.
+#
+if [ "${DEBUG_MODE}" == "0" ]; then
+	logAdd "${MY_SERVICE_NAME} was restarted."
+	sleep 10
+else
+	# Log message.
+	logAdd "${MY_SERVICE_NAME} was restarted in DEBUG_MODE."
+	# 
+	# Adjust variables.
+	IDXBUMP_SLEEP_SECONDS="3"
+	DEVICE_DISCONNECTED_IDX="5"
+	if [ ! -e "${GASERVICE_FIFO}" ]; then
+		logAdd "${MY_SERVICE_NAME}: [DEBUG] Creating file instead of FIFO [${GASERVICE_FIFO}]"
+		touch "${GASERVICE_FIFO}"
+	fi
+fi
+#
+# Service Main.
+# 
+# Create FIFO.
+rm "${EVENT_FIFO}" 2> /dev/null
+mkfifo "${EVENT_FIFO}"
+#
+# Store script PID.
+echo "$$" > "${PID_FILE}"
+#
+# Fork two permanently running background processes.
+logreader &
+disconnectIdxBumper &
+#
+# Wait for kill -INT from service stub.
+wait
+#
+# We should never reach here.
+#
+logAdd "${MY_SERVICE_NAME}: End of script reached."
+exit 0
+
