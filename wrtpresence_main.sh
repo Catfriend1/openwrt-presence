@@ -3,10 +3,6 @@ trap "" SIGHUP
 #
 trap "trap - SIGTERM && kill -- -$$" SIGINT SIGTERM EXIT
 #
-# Notes
-#
-# while (true); do clear; echo "*** associations.dto"; cat "/tmp/associations.dto"; echo "*** present_devices.dto"; cat "/tmp/present_devices.dto"; sleep 1; done
-# 
 # set +m
 #
 # Filename:			wrtpresence_main.sh
@@ -14,6 +10,12 @@ trap "trap - SIGTERM && kill -- -$$" SIGINT SIGTERM EXIT
 # Purpose:			Tracks STA client associations across a WiFi backed by multiple APs.
 # 
 # Installation:
+# 
+# 	Generic advice:
+# 		LUCI / System / System / Hostname
+# 			Set hostname to "WifiAP-[01|02|03|..]" or adjust the variable to match your hostname convention.
+# 				LOGREAD_SOURCE_PREFIX="WifiAP-.."
+# 
 # 	=========================
 # 	== MASTER ACCESS POINT ==
 # 	=========================
@@ -60,8 +62,10 @@ trap "trap - SIGTERM && kill -- -$$" SIGINT SIGTERM EXIT
 #		sh /root/wrtpresence clean
 #	Logging and Monitoring:
 #		sh /root/wrtpresence debug	
-#		sh /root/wrtpresence livelog
 #		sh /root/wrtpresence showlog
+#		sh /root/wrtpresence livelog
+# 		sh /root/wrtpresence livestate
+# 		sh /root/wrtpresence showstate
 #
 # Prerequisites:
 # 	Configuration
@@ -397,6 +401,11 @@ logreader() {
 			STATION_NAME="$(echo -n "${line}" | grep -o "${LOGREAD_SOURCE_PREFIX}")"
 			WIFI_STA_LIST="$(echo -n "${line}" | cut -d ";" -f 2)"
 			# logAdd -q "logreader: Got wrtwifistareport: [${WIFI_STA_LIST}] on [${STATION_NAME}]"
+			#
+			# We store the current unix timestamp for this access point as the time when we received its
+			# last report. If the AP "dies", we can detect it later and remove its STA clients from
+			# ASSOCIATIONS_DTO.
+			echo "$(date +%s)" > "/tmp/${STATION_NAME}.last_wrtwifistareport"
 			# 
 			# We need to update our associations cache according to the full report of active STA clients
 			# for the given STATION_NAME.
@@ -462,6 +471,8 @@ disconnectIdxBumper() {
 		# echo "${LOOP_CNT}" >> "${EVENT_FIFO}"
 		# logAdd -q "disconnectIdxBumper: LOOP_CNT=[${LOOP_CNT}]"
 		#
+		# TASK 1
+		# Increment counter value for every disconnected STA MAC.
 		# Only grab rows from disconnected devices.
 		cat "${ASSOCIATIONS_DTO}" 2>/dev/null | grep -v "=0$" | while read line; do
 			# 
@@ -483,6 +494,35 @@ disconnectIdxBumper() {
 				fi
 			fi
 			#
+		done
+		#
+		# TASK 2
+		# Detect "dead" access points.
+		# We will look up the station that reported a connected STA MAC.
+		# Each station is expected to send us "wrtwifistareport" events every 5 minutes.
+		# If the "last_wrtwifistareport" unix timestamp recorded for the access point is too old,
+		# we will assume it "dead" and remove STA MAC addresses from ASSOCIATIONS_DTO it has reported before.
+		# 
+		# Get a all access points that have reported a connected STA MAC.
+		cat "${ASSOCIATIONS_DTO}" 2>/dev/null | grep "=0$" | cut -d "_" -f 1 | uniq | while read line; do
+			# Example: line="WifiAP-04"
+			#
+			# Did the station already submit a "wrtwifistareport"?
+			if [ -f "/tmp/${line}.last_wrtwifistareport" ]; then
+				LAST_REPORT_UNIX_TIME="$(cat "/tmp/${line}.last_wrtwifistareport" 2>/dev/null | head -n 1)"
+				CURRENT_UNIX_TIME="$(date +%s)"
+				MINUTES_SINCE_LAST_REPORT="$(((CURRENT_UNIX_TIME-LAST_REPORT_UNIX_TIME)/60))"
+				if [ ${MINUTES_SINCE_LAST_REPORT} -ge 20 ]; then
+					# Dead access point detected.
+					logAdd -q "disconnectIdxBumper: AP [${line}] did not submit the wrtwifistareport since more than 20 minutes. Check hardware and power supply. Will remove its associations from DTO ..."
+					# 
+					# Remove all STA that were reported by this AP from ASSOCIATIONS_DTO.
+					sed -i "/^${line}_.*/d" "${ASSOCIATIONS_DTO}"
+					# 
+					# Update PRESENT_DEVICES_DTO
+					plCheckDevicesByCounters
+				fi
+			fi
 		done
 		#
 		sleep ${IDXBUMP_SLEEP_SECONDS}
