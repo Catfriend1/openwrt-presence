@@ -52,12 +52,32 @@ After "Catfriend1-Mobile", MAC 3c:aa:bb:cc:1f:6a disconnected from all APs, the 
 2020-01-21 [11-01-20] FIFO-OUT [DEV/Catfriend1-Mobile=away] to /tmp/wrtgaservice_main.sh.event_fifo
 ```
 
-- Presence state can be retrieved from flat files by other scripts any time by
--- MAC
-```
-```
+- Presence state can be retrieved from flat files by other scripts in REAL time. The stats are updated immediately when a device joins the SSID.
 
--- Device Name
+-- Retrieve from file by MAC
 ```
+root@WifiAP-01:~# cat "/tmp/associations.dto"
+WifiAP-01_wlan1-4=d0:aa:bb:cc:02:a7=0
+WifiAP-02_wlan0=48:aa:bb:cc:49:9e=5
+WifiAP-02_wlan1-4=d0:aa:bb:cc:02:a7=5
+WifiAP-02_wlan1=24:aa:bb:cc:d2:9c=5
+WifiAP-03_wlan1=0c:aa:bb:cc:23:51=5
+WifiAP-04_wlan0-3=3c:aa:bb:cc:1f:6a=0
+WifiAP-04_wlan0=48:aa:bb:cc:49:9e=0
+WifiAP-04_wlan1-4=d0:aa:bb:cc:02:a7=5
+WifiAP-04_wlan1=48:aa:bb:cc:49:9e=5
+WifiAP-05_wlan1-4=d0:aa:bb:cc:02:a7=5
+WifiAP-05_wlan1=34:aa:bb:cc:11:54=5
+WifiAP-05_wlan1=64:aa:bb:cc:b2:08=0
+```
+=0 means CONSIDERED PRESENT
+>1 and <5 means CONSIDERED PRESENT BUT DISCONNECTED FOR SHORT TIME
+=5 means CONSIDERED AWAY, because device did not reconnect within 5 minutes to any access point.
+
+-- Retrieve from file by Device Name
+```
+# The device name is put here, if the corresponding MAC address has the counter "<5" in "/tmp/associations.dto".
+root@WifiAP-01:~# cat "/tmp/present_devices.dto"
+Catfriend1-Mobile
 ```
 
