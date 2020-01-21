@@ -10,6 +10,7 @@ Support, ideas, feedback appreciated via issue or at: https://forum.openwrt.org/
 # Showroom
 - "sh /root/wrtpresence livelog"
 
-´´´
+
+```
 a
-´´´
+```
