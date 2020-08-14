@@ -598,6 +598,19 @@ else
 	logAdd "[WARN] syslog-ng is not installed. Only this AP will be monitored. Run \"opkg install syslog-ng\" if you need to monitor multiple APs."
 fi
 # 
+if ( ! grep -q "network(ip(\"0\.0\.0\.0\") port(514)" "/etc/syslog-ng.conf" ); then
+	logAdd "[WARN] syslog-ng is NOT configured to listen for incoming syslog messages from slave access points."
+	sed -i -e "s/network(ip(\".*[\"]/network(ip(\"0.0.0.0\"/g" "/etc/syslog-ng.conf"
+	#
+	# Recheck.
+	if ( ! grep -q "network(ip(\"0\.0\.0\.0\") port(514)" "/etc/syslog-ng.conf" ); then
+		logAdd "[ERROR] syslog-ng is NOT configured to listen for incoming syslog messages from slave access points. Stop."
+		exit 99
+	fi
+	/etc/init.d/syslog-ng restart
+	logAdd "[INFO] Successfully reconfigured syslog-ng."
+fi
+# 
 if ( ! grep -q "option cronloglevel '9'$" "/etc/config/system" ); then
 	logAdd "[WARN] Cron log level is not reduced to \"warning\" in \"/etc/config/system\". Set \"option cronloglevel '9'\"."
 fi
