@@ -132,7 +132,7 @@ PRESENT_DEVICES_DTO="/tmp/present_devices.dto"
 # Timing Configuration.
 #
 IDXBUMP_SLEEP_SECONDS="60"
-DEVICE_DISCONNECTED_IDX="5"
+DEVICE_DISCONNECTED_IDX="10"
 #
 # Variables: RUNTIME.
 MY_SERVICE_NAME="$(basename "$0")"
@@ -374,11 +374,11 @@ logreader() {
 	logAdd -q "[INFO] BEGIN logreader_loop"
 	#
 	LOGREAD_BIN="$(which logread)"
-	if [ "${LOGREAD_BIN}" == "/usr/sbin/logread" ]; then
-		# /usr/sbin/logread - provided by package "syslog-ng"
+	if ( opkg list "syslog-ng" | grep -q "syslog-ng" ); then
+		# logread is provided by package "syslog-ng"
 		LOGREAD_SOURCE_PREFIX="WifiAP-.."
 	else
-		# /sbin/logread - OpenWRT default
+		# logread is provided by default package "logd"
 		LOGREAD_SOURCE_PREFIX="daemon\.notice"
 	fi
 	#
