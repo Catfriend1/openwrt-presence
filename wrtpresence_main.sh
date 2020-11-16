@@ -22,6 +22,7 @@ trap "trap - SIGTERM && kill -- -$$" SIGINT SIGTERM EXIT
 # 		... where this script is executed.
 # 	opkg update
 # 	opkg install bash
+# 	opkg remove logd
 # 	opkg install syslog-ng
 # 	chmod +x "/root/wrtpresence"
 # 	chmod +x "/root/wrtpresence_main.sh"
@@ -40,6 +41,12 @@ trap "trap - SIGTERM && kill -- -$$" SIGINT SIGTERM EXIT
 # 		*/5 * * * * /bin/sh "/root/wrtwifistareport.sh" >/dev/null 2>&1
 # 	Restart Cron:
 # 		/etc/init.d/cron restart
+#
+# 	chmod +x "/root/wrtbtdevreport.sh"
+# 	LUCI: System / Scheduled Tasks / Add new row
+# 		*/1 * * * * /bin/sh "/root/wrtbtdevreport.sh" >/dev/null 2>&1
+# 	Restart Cron:
+# 		/etc/init.d/cron restart
 # 
 # 	========================
 # 	== SLAVE ACCESS POINT ==
@@ -49,7 +56,7 @@ trap "trap - SIGTERM && kill -- -$$" SIGINT SIGTERM EXIT
 # 		External system log server
 # 			[IP_ADDRESS_OF_MASTER_ACCESS_POINT]
 # 		Cron Log Level
-# 			Warning	
+# 			Warning
 # 
 # 	chmod +x "/root/wrtwifistareport.sh"
 # 	LUCI: System / Scheduled Tasks / Add new row
@@ -153,15 +160,11 @@ logAdd ()
 	TMP_DATETIME="$(date '+%Y-%m-%d [%H-%M-%S]')"
 	TMP_LOGSTREAM="$(tail -n ${LOG_MAX_LINES} ${LOGFILE} 2>/dev/null)"
 	echo "${TMP_LOGSTREAM}" > "$LOGFILE"
-	if [ "$1" == "-q" ]; then
-		#
+	if [ "${1}" = "-q" ]; then
 		# Quiet mode.
-		#
 		echo "${TMP_DATETIME} ${@:2}" >> "${LOGFILE}"
 	else
-		#
 		# Loud mode.
-		#
 		echo "${TMP_DATETIME} $*" | tee -a "${LOGFILE}"
 	fi
 	return
@@ -169,6 +172,11 @@ logAdd ()
 
 fifoOut ()
 {
+	if [ "${DEBUG_MODE}" = "1" ]; then
+		logAdd -q "[DEBUG] Skipping FIFO-OUT [$1]"
+		return 0
+	fi
+	#
 	fifoOut_do "${GASERVICE_FIFO}" "$1"
 }
 
@@ -397,10 +405,24 @@ logreader() {
 				# fifoOut_do "${EVENT_FIFO}" "DISCONNECT: ${MAC_ADDR} on ${STATION_NAME}"
 				plMarkClientAsDisconnected "${STATION_NAME}_${WIFI_IF_NAME}" "${MAC_ADDR}" "AP-STA-DISCONNECTED"
 			fi
-		elif $(echo -n "${line}" | grep -q "${LOGREAD_SOURCE_PREFIX}.*wrtwifistareport: ;.*"); then
-			STATION_NAME="$(echo -n "${line}" | grep -o "${LOGREAD_SOURCE_PREFIX}")"
+		elif $(echo -n "${line}" | grep -q "${LOGREAD_SOURCE_PREFIX}.*\(wrtbtdevreport\|wrtwifistareport\): ;.*"); then
+			STATION_NAME="$(echo -n "${line}" | grep -o "${LOGREAD_SOURCE_PREFIX}" | head -n 1)"
 			WIFI_STA_LIST="$(echo -n "${line}" | cut -d ";" -f 2)"
-			# logAdd -q "logreader: Got wrtwifistareport: [${WIFI_STA_LIST}] on [${STATION_NAME}]"
+			#
+			# Sanity check to filter wrongly formatted log messages.
+			if [ ! ";${WIFI_STA_LIST}" = "$(echo ";${WIFI_STA_LIST}" | grep -o -E ";(([a-zA-z0-9,:-]*\|){1,})?")" ]; then
+				logAdd -q "logreader: Ignored invalid report from device [${STATION_NAME}]."
+				continue
+			fi
+			#
+			REPORT_TYPE="wrtwifistareport"
+			if $(echo -n "${line}" | grep -q "${LOGREAD_SOURCE_PREFIX}.*wrtbtdevreport: ;.*"); then
+				REPORT_TYPE="wrtbtdevreport"
+			fi
+			#
+			# For testing purposes only.
+			## logAdd -q "logreader: Got raw line [${line}]"
+			## logAdd -q "logreader: Got ${REPORT_TYPE}: [${WIFI_STA_LIST}] on [${STATION_NAME}]"
 			#
 			# We store the current unix timestamp for this access point as the time when we received its
 			# last report. If the AP "dies", we can detect it later and remove its STA clients from
@@ -420,12 +442,13 @@ logreader() {
 					MAC_ADDR="$(echo "${wifiif_macaddr}" | cut -d "," -f 2)"
 					#
 					# For testing purposes only.
-					# logAdd -q "logreader: wrtwifistareport[1]: ... macaddr=[${MAC_ADDR}] on wifiif=[${WIFI_IF_NAME}]"
+					## logAdd -q "logreader: ${REPORT_TYPE}[1]: ... macaddr=[${MAC_ADDR}] on wifiif=[${WIFI_IF_NAME}]"
+					## logger -t "wrtbtdevreport" ";hci0,aa:bb:cc:dd:ee:ff|"
 					#
 					# MAC address already in DTO?
 					if ( ! grep -q -i "^${STATION_NAME}_${WIFI_IF_NAME}=${MAC_ADDR}=0$" "${ASSOCIATIONS_DTO}" ); then
-						# logAdd -q "logreader: wrtwifistareport: MAC [${MAC_ADDR}] missing - Adding."
-						plAddClient "${STATION_NAME}_${WIFI_IF_NAME}" "${MAC_ADDR}" "wrtwifistareport"
+						# logAdd -q "logreader: ${REPORT_TYPE}: MAC [${MAC_ADDR}] missing - Adding."
+						plAddClient "${STATION_NAME}_${WIFI_IF_NAME}" "${MAC_ADDR}" "${REPORT_TYPE}"
 					fi
 				fi
 			done
@@ -438,14 +461,27 @@ logreader() {
 					MAC_ADDR="$(echo "${line}" | cut -d "=" -f 2)"
 					#
 					# For testing purposes only.
-					# logAdd -q "logreader: wrtwifistareport[2]: ... macaddr=[${MAC_ADDR}] on wifiif=[${WIFI_IF_NAME}]"
+					# logAdd -q "logreader: ${REPORT_TYPE}[2]: ... macaddr=[${MAC_ADDR}] on wifiif=[${WIFI_IF_NAME}]"
 					#
 					# For testing purposes only.
+					# 	logger -t "wrtbtdevreport" ";"
 					# 	logger -t "wrtwifistareport" ";"
+					#
+					if [ "${REPORT_TYPE}" = "wrtwifistareport" ]; then
+						if ( echo "${WIFI_IF_NAME}" | grep -q "hci.*" ); then
+							# Skip bluetooth devices as they are not contained in wrtwifistareport messages.
+							continue
+						fi
+					else
+						if ( echo "${WIFI_IF_NAME}" | grep -q "wlan.*" ); then
+							# Skip WiFi devices as they are not contained in wrtbtdevreport messages.
+							continue
+						fi
+					fi
 					# 
 					if ( ! echo -e "$(echo "${WIFI_STA_LIST}" | sed -r -e "s/\|/\\\n/g")" | grep -i -q "^${WIFI_IF_NAME},${MAC_ADDR}$" ); then
-						# logAdd -q "logreader: wrtwifistareport: MAC [${MAC_ADDR}] no longer associated - Marking as disconnected."
-						plMarkClientAsDisconnected "${STATION_NAME}_${WIFI_IF_NAME}" "${MAC_ADDR}" "wrtwifistareport"
+						# logAdd -q "logreader: ${REPORT_TYPE}: MAC [${MAC_ADDR}] no longer associated - Marking as disconnected."
+						plMarkClientAsDisconnected "${STATION_NAME}_${WIFI_IF_NAME}" "${MAC_ADDR}" "${REPORT_TYPE}"
 					fi
 					# 
 				fi
@@ -624,6 +660,16 @@ if ( ! grep -Fq "/root/wrtwifistareport.sh" "/etc/crontabs/root" ); then
 	logAdd "[ERROR] Missing cron job for \"wrtwifistareport\". Stop."
 	exit 99
 fi
+# 
+if [ ! -f "/root/wrtbtdevreport.sh" ]; then
+	logAdd "[ERROR] File missing: \"/root/wrtbtdevreport.sh\". Stop."
+	exit 99
+fi
+# 
+if ( ! grep -Fq "/root/wrtbtdevreport.sh" "/etc/crontabs/root" ); then
+	logAdd "[ERROR] Missing cron job for \"wrtbtdevreport\". Stop."
+	exit 99
+fi
 #
 # Check commmand line parameters.
 case "$1" in 
@@ -636,11 +682,12 @@ esac
 #
 # Service Startup.
 #
-if [ "${DEBUG_MODE}" == "0" ]; then
+if [ "${DEBUG_MODE}" = "0" ]; then
 	logAdd "${MY_SERVICE_NAME} was restarted."
 	sleep 10
 else
 	# Log message.
+	logAdd "*************"
 	logAdd "${MY_SERVICE_NAME} was restarted in DEBUG_MODE."
 	# 
 	# Adjust variables.
