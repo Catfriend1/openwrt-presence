@@ -1,0 +1,11 @@
+# radio0
+# radio1
+config wifi-iface 'wifinetX'
+	option device 'radioX'
+	option disabled 'X'
+	option mode 'ap'
+	option encryption 'none'
+	option ssid 'guest-wifi'
+	option dtim_period '8'
+	option disassoc_low_ack '1'
+	option network 'lan'
