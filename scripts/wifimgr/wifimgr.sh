@@ -1,4 +1,5 @@
 #!/bin/bash
+### Documentation at: https://forum.openwrt.org/t/a-kiss-wifi-manager-script-to-push-etc-config-wireless-using-a-central-mgmt-server
 #
 # Check shell
 if [ ! -n "$BASH_VERSION" ]; then
