@@ -1,0 +1,13 @@
+INIT_D_ATH9K_SET_TXQ_FULLFN="/etc/init.d/ath9k-set-txq-memory-limit"
+cat << EOF > "${INIT_D_ATH9K_SET_TXQ_FULLFN}"
+#!/bin/sh /etc/rc.common
+
+START=99
+
+start() {
+	iw phy phy1 set txq memory_limit 8388608
+}
+EOF
+chmod +x "${INIT_D_ATH9K_SET_TXQ_FULLFN}"
+${INIT_D_ATH9K_SET_TXQ_FULLFN} enable
+${INIT_D_ATH9K_SET_TXQ_FULLFN} start
