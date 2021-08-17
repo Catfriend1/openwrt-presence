@@ -85,6 +85,7 @@ trap "trap - SIGTERM && kill -- -$$" SIGINT SIGTERM EXIT
 # 		wrtpresence								main service wrapper
 # 		wrtpresence_main.sh						main service program
 # 		wrtwifistareport.sh						cron job script for sync in case events got lost during reboot
+# 		wrtbtdevreport.sh						cron job script for bluetooth scans
 # 	Packages
 # 		bash									required for arrays
 # 		syslog-ng								required for log collection from other APs
@@ -137,20 +138,18 @@ ASSOCIATIONS_DTO="/tmp/associations.dto"
 PRESENT_DEVICES_DTO="/tmp/present_devices.dto"
 #
 # Timing Configuration.
-#
 IDXBUMP_SLEEP_SECONDS="60"
 DEVICE_DISCONNECTED_IDX="10"
 #
-# Variables: RUNTIME.
-MY_SERVICE_NAME="$(basename "$0")"
+# Optional: Enable wrtwifistareport wifi reports by the local device
+CONFIG_WIFI_STA_REPORTS_ENABLED="1"
+#
+# Optional: Enable wrtbtdevreport bluetooth reports by the local device
+CONFIG_BLUETOOTH_REPORTS_ENABLED="1"
 #
 # -----------------------
 # --- Function Import ---
 # -----------------------
-# if [ ! -f "${CURRENT_SCRIPT_PATH}/wrtpresence_helper.sh" ]; then
-# 	(>&2 echo "${MY_SERVICE_NAME}: [ERROR] Include file 'wrtpresence_helper.sh' is missing. Service terminated.")
-# 	exit 99
-# fi
 # 
 # -----------------------------------------------------
 # -------------- START OF FUNCTION BLOCK --------------
@@ -487,6 +486,11 @@ logreader() {
 				fi
 			done
 			#
+		elif $(echo -n "${line}" | grep -q "${LOGREAD_SOURCE_PREFIX}.*procd: - init complete -"); then
+			STATION_NAME="$(echo -n "${line}" | grep -o "${LOGREAD_SOURCE_PREFIX}" | head -n 1)"
+			logAdd -q "logreader: Detected reboot of device [${STATION_NAME}]."
+			# STN_DISABLE_NOTIFICATION="1"
+			# sendTelegramNotification "${HOSTNAME}: Detected reboot of device [${STATION_NAME}]." ""
 		fi
 	done
 }
@@ -635,8 +639,9 @@ else
 fi
 # 
 if ( ! grep -q "network(ip(\"0\.0\.0\.0\") port(514)" "/etc/syslog-ng.conf" ); then
-	logAdd "[WARN] syslog-ng is NOT configured to listen for incoming syslog messages from slave access points."
+	logAdd "[WARN] syslog-ng is NOT configured to listen for incoming syslog messages from slave access points. Trying to fix ..."
 	sed -i -e "s/network(ip(\".*[\"]/network(ip(\"0.0.0.0\"/g" "/etc/syslog-ng.conf"
+	sed -i -e "s/network_localhost(/network(ip(\"0.0.0.0\") port(514) transport(udp) ip-protocol(6)/g" "/etc/syslog-ng.conf"
 	#
 	# Recheck.
 	if ( ! grep -q "network(ip(\"0\.0\.0\.0\") port(514)" "/etc/syslog-ng.conf" ); then
@@ -651,24 +656,28 @@ if ( ! grep -q "option cronloglevel '9'$" "/etc/config/system" ); then
 	logAdd "[WARN] Cron log level is not reduced to \"warning\" in \"/etc/config/system\". Set \"option cronloglevel '9'\"."
 fi
 # 
-if [ ! -f "/root/wrtwifistareport.sh" ]; then
-	logAdd "[ERROR] File missing: \"/root/wrtwifistareport.sh\". Stop."
-	exit 99
+if [ "${CONFIG_WIFI_STA_REPORTS_ENABLED}" = "1" ]; then
+	if [ ! -f "/root/wrtwifistareport.sh" ]; then
+		logAdd "[ERROR] File missing: \"/root/wrtwifistareport.sh\". Stop."
+		exit 99
+	fi
+	# 
+	if ( ! grep -Fq "/root/wrtwifistareport.sh" "/etc/crontabs/root" ); then
+		logAdd "[ERROR] Missing cron job for \"wrtwifistareport\". Stop."
+		exit 99
+	fi
 fi
 # 
-if ( ! grep -Fq "/root/wrtwifistareport.sh" "/etc/crontabs/root" ); then
-	logAdd "[ERROR] Missing cron job for \"wrtwifistareport\". Stop."
-	exit 99
-fi
-# 
-if [ ! -f "/root/wrtbtdevreport.sh" ]; then
-	logAdd "[ERROR] File missing: \"/root/wrtbtdevreport.sh\". Stop."
-	exit 99
-fi
-# 
-if ( ! grep -Fq "/root/wrtbtdevreport.sh" "/etc/crontabs/root" ); then
-	logAdd "[ERROR] Missing cron job for \"wrtbtdevreport\". Stop."
-	exit 99
+if [ "${CONFIG_BLUETOOTH_REPORTS_ENABLED}" = "1" ]; then
+	if [ ! -f "/root/wrtbtdevreport.sh" ]; then
+		logAdd "[ERROR] File missing: \"/root/wrtbtdevreport.sh\". Stop."
+		exit 99
+	fi
+	# 
+	if ( ! grep -Fq "/root/wrtbtdevreport.sh" "/etc/crontabs/root" ); then
+		logAdd "[ERROR] Missing cron job for \"wrtbtdevreport\". Stop."
+		exit 99
+	fi
 fi
 #
 # Check commmand line parameters.
@@ -683,18 +692,18 @@ esac
 # Service Startup.
 #
 if [ "${DEBUG_MODE}" = "0" ]; then
-	logAdd "${MY_SERVICE_NAME} was restarted."
+	logAdd "[INFO] Service was restarted."
 	sleep 10
 else
 	# Log message.
 	logAdd "*************"
-	logAdd "${MY_SERVICE_NAME} was restarted in DEBUG_MODE."
+	logAdd "[INFO] Service was restarted in DEBUG_MODE."
 	# 
 	# Adjust variables.
 	IDXBUMP_SLEEP_SECONDS="3"
 	DEVICE_DISCONNECTED_IDX="5"
 	if [ ! -e "${GASERVICE_FIFO}" ]; then
-		logAdd "${MY_SERVICE_NAME}: [DEBUG] Creating file instead of FIFO [${GASERVICE_FIFO}]"
+		logAdd "[DEBUG] Creating file instead of FIFO [${GASERVICE_FIFO}]"
 		touch "${GASERVICE_FIFO}"
 	fi
 fi
@@ -717,6 +726,6 @@ wait
 #
 # We should never reach here.
 #
-logAdd "${MY_SERVICE_NAME}: End of script reached."
+logAdd "[INFO] End of script reached."
 exit 0
 
