@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Version 1
+# Version 1.2
 #
 #########################
 # LIBRARY FUNCTIONS		#
@@ -62,7 +62,7 @@ editTelegramNotification ()
 		return 1
 	fi
 	#
-	STN_MESSAGE_ID="$(cat "${TMP_STN_ID_CACHE}" 2>/dev/null | grep "^${LIB_TELEGRAM_CHAT_ID}-" | grep -F "$(echo "${STN_SEARCH}" | tr -d '\n')" | tail -1 | cut -d "|" -f 1 | cut -d "-" -f 2)"
+	STN_MESSAGE_ID="$(cat "${TMP_STN_ID_CACHE}" 2>/dev/null | grep "^${LIB_TELEGRAM_CHAT_ID}=" | grep -F "$(echo "${STN_SEARCH}" | tr -d '\n')" | tail -1 | cut -d "|" -f 1 | cut -d "=" -f 2)"
 	if [ -z "${STN_MESSAGE_ID}" ]; then
 		libTMlogAdd "[WARN] editTelegramNotification: Failed to find previous message, fallback to new message."
 		sendTelegramNotification "${2}"
@@ -89,7 +89,8 @@ sendTelegramNotification ()
 {
 	#
 	# Usage:			sendTelegramNotification "[TEXT]" "[ATTACHMENT_FULLFN]"
-	# Example:			sendTelegramNotification "Test push message" "/tmp/test.txt"
+	# Example:			sendTelegramNotification "Test push message" "/root/telegram/test_lib_telegram_messenger_1.jpg /root/telegram/test_lib_telegram_messenger_2.jpg"
+	# Example:			sendTelegramNotification -- "/root/telegram/test_lib_telegram_messenger_1.jpg /root/telegram/test_lib_telegram_messenger_2.jpg"
 	# Purpose:
 	# 	Send push message to Telegram Bot Chat
 	#
@@ -101,8 +102,9 @@ sendTelegramNotification ()
 	# 	[IN] LIB_TELEGRAM_CHAT_ID
 	#
 	# Returns:
-	# 	"0" on SUCCESS
-	# 	"1" on FAILURE
+	# 	"0" : SUCCESS
+	# 	"1" : FAILURE
+	# 	"2" : FAILURE - attachment too large
 	#
 	# Consts.
 	TMP_STN_CURL_TIMEOUT="60"
@@ -113,7 +115,7 @@ sendTelegramNotification ()
 	STN_TEXT="$(echo "${STN_TEXT}" | sed -e 's~\\\([^\\n]\)~#§#§\1~g')"
 	STN_TEXT="$(echo -e "${STN_TEXT//\"/\\\"}")"
 	STN_TEXT="$(echo "${STN_TEXT}" | sed -e 's/#§#§/\\\\/g')"
-	STN_ATT_FULLFN="${2}"
+	STN_ATTACHMENTS="${2}"
 	#
 	if [ -z "${LIB_TELEGRAM_BOT_APIKEY}" ] || [ -z "${LIB_TELEGRAM_BOT_ID}" ] || [ -z "${LIB_TELEGRAM_CHAT_ID}" ]; then
 		libTMlogAdd "[ERROR] sendTelegramNotification FAILED. Global vars not set."
@@ -128,7 +130,7 @@ sendTelegramNotification ()
 	if [ "${STN_TEXT}" = "--" ]; then
 		STN_TEXT=""
 	fi
-	if [ -z "${STN_TEXT}" ] && [ -z "${STN_ATT_FULLFN}" ]; then
+	if [ -z "${STN_TEXT}" ] && [ -z "${STN_ATTACHMENTS}" ]; then
 		return 1
 	fi
 	#
@@ -141,7 +143,8 @@ sendTelegramNotification ()
 		return 1
 	fi
 	#
-	if [ ! -z "${STN_TEXT}" ]; then
+	if [ ! -z "${STN_TEXT}" ] && [ -z "${STN_ATTACHMENTS}" ]; then
+		# Text-only notification.
 		STN_CURL_RESULT="$(eval curl -s \
 				--insecure \
 				--max-time \""${TMP_STN_CURL_TIMEOUT}\"" \
@@ -153,53 +156,47 @@ sendTelegramNotification ()
 		## STN_CURL_RESULT='{"ok":false,"result":{"message_id":0,"from":{"id":0,"is_bot":true,"first_name":"Bot","username":"Bot"},"chat":{"id":0,"first_name":"FN","last_name":"LN","username":"FNLN","type":"private"},"date":0000000000,"text":"Message first line\nMessage second line"}}'
 		#
 		if ( ! echo "${STN_CURL_RESULT}" | grep -Fiq "\"ok\":true" ); then
-			libTMlogAdd "[ERROR] sendTelegramNotification: API_RESULT=${STN_CURL_RESULT}"
+			libTMlogAdd "[ERROR] sendTelegramNotification: textOnly API_RESULT=${STN_CURL_RESULT}"
 			return 1
 		fi
 		#
 		STN_MESSAGE_ID="$(echo "${STN_CURL_RESULT}" | grep -o -E "\"message_id\":[0-9]+" | cut -d ':' -f 2)"
-		echo "${LIB_TELEGRAM_CHAT_ID}-${STN_MESSAGE_ID}|${STN_TEXT}" | tr -d '\n' >> "${TMP_STN_ID_CACHE}"
+		echo "${LIB_TELEGRAM_CHAT_ID}=${STN_MESSAGE_ID}|${STN_TEXT}" | tr -d '\n' >> "${TMP_STN_ID_CACHE}"
 		echo "" >> "${TMP_STN_ID_CACHE}"
+		return 0
 	fi
 	#
-	if [ ! -z "${STN_ATT_FULLFN}" ]; then
-		if [ "${STN_ATT_FULLFN##*.}" = "jpg" ]; then
-			STN_CURL_RESULT="$(eval curl -q \
-					--insecure \
-					--max-time \""${TMP_STN_CURL_TIMEOUT}\"" \
-					-F "\"photo=@${STN_ATT_FULLFN}\"" \
-					 "\"https://api.telegram.org/bot${LIB_TELEGRAM_BOT_ID}:${LIB_TELEGRAM_BOT_APIKEY}/sendPhoto?chat_id=${LIB_TELEGRAM_CHAT_ID}&disable_notification=${STN_DISABLE_NOTIFICATION}\"" \
-					 2> /dev/null)"
-			if ( ! echo "${STN_CURL_RESULT}" | grep -Fiq "\"ok\":true" ); then
-				if ( echo "${STN_CURL_RESULT}" | grep -Fiq "\"error_code\":413," ); then
-					libTMlogAdd "[ERROR] sendTelegramNotification: Attachment too large. Skipping."
-				else
-					libTMlogAdd "[ERROR] sendTelegramNotification: API_RESULT=${STN_CURL_RESULT}"
-				fi
-				return 1
-			fi
-		elif [ "${STN_ATT_FULLFN##*.}" = "mp4" ]; then
-			STN_CURL_RESULT="$(eval curl -q \
-					--insecure \
-					--max-time \""${TMP_STN_CURL_TIMEOUT}\"" \
-					-F "\"video=@${STN_ATT_FULLFN}\"" \
-					 "\"https://api.telegram.org/bot${LIB_TELEGRAM_BOT_ID}:${LIB_TELEGRAM_BOT_APIKEY}/sendVideo?chat_id=${LIB_TELEGRAM_CHAT_ID}&disable_notification=${STN_DISABLE_NOTIFICATION}\"" \
-					 2> /dev/null)"
-			if ( ! echo "${STN_CURL_RESULT}" | grep -Fiq "\"ok\":true" ); then
-				if ( echo "${STN_CURL_RESULT}" | grep -Fiq "\"error_code\":413," ); then
-					libTMlogAdd "[ERROR] sendTelegramNotification: Attachment too large. Skipping."
-				else
-					libTMlogAdd "[ERROR] sendTelegramNotification: API_RESULT=${STN_CURL_RESULT}"
-				fi
-				return 1
-			fi
+	# Attachments with optional text notification.
+	STN_MEDIA_PARAMS=""
+	STN_ATTACHMENT_JSON=""
+	STN_ATTACHMENT_IDX=0
+	for stnFullFn in ${STN_ATTACHMENTS}; do
+		STN_ATTACHMENT_IDX="$((STN_ATTACHMENT_IDX+1))"
+		if [ -z "${STN_MEDIA_PARAMS}" ]; then
+			# First picture gets the text.
+			STN_MEDIA_PARAMS="{\"type\":\"photo\",\"media\":\"attach://photo_${STN_ATTACHMENT_IDX}\",\"caption\":\"${STN_TEXT}\"}"
 		else
-			# Wrong file extension.
+			STN_MEDIA_PARAMS="${STN_MEDIA_PARAMS},{\"type\":\"photo\",\"media\":\"attach://photo_${STN_ATTACHMENT_IDX}\",\"caption\":\"\"}"
+		fi
+		STN_ATTACHMENT_JSON="${STN_ATTACHMENT_JSON} -F "\"photo_${STN_ATTACHMENT_IDX}=@${stnFullFn}\"""
+	done
+	#
+	STN_CURL_RESULT="$(eval curl -q \
+			--insecure \
+			--max-time \""${TMP_STN_CURL_TIMEOUT}\"" \
+			-F "media='[${STN_MEDIA_PARAMS}]'" \
+			${STN_ATTACHMENT_JSON} \
+			 "\"https://api.telegram.org/bot${LIB_TELEGRAM_BOT_ID}:${LIB_TELEGRAM_BOT_APIKEY}/sendMediaGroup?chat_id=${LIB_TELEGRAM_CHAT_ID}&disable_notification=${STN_DISABLE_NOTIFICATION}\"" \
+			 2> /dev/null)"
+	if ( ! echo "${STN_CURL_RESULT}" | grep -Fiq "\"ok\":true" ); then
+		if ( echo "${STN_CURL_RESULT}" | grep -Fiq "\"error_code\":413," ); then
+			libTMlogAdd "[ERROR] sendTelegramNotification: textAttachment tooLarge API_RESULT=${STN_CURL_RESULT}"
+			return 2
+		else
+			libTMlogAdd "[ERROR] sendTelegramNotification: textAttachment API_RESULT=${STN_CURL_RESULT}"
 			return 1
 		fi
-		#
 	fi
 	#
-	# Return SUCCESS.
 	return 0
 }

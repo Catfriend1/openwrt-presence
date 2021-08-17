@@ -18,4 +18,7 @@ echo "[DEBUG] sendTelegramNotification exited with code [$?]"
 editTelegramNotification "test message. DOMAIN\\test.user\nNeue" "Edit^ed push message with german ÄÖU umlaut and line\nbreak."
 echo "[DEBUG] editTelegramNotification exited with code [$?]"
 #
+sendTelegramNotification "$(date)" "/root/telegram/test_lib_telegram_messenger_1.jpg /root/telegram/test_lib_telegram_messenger_2.jpg"
+echo "[DEBUG] editTelegramNotification exited with code [$?]"
+#
 exit 0
