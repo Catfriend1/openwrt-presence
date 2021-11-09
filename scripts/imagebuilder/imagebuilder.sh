@@ -1,5 +1,8 @@
 #!/bin/sh
 #
+# Command line.
+## sh /root/openwrt/imagebuilder.sh
+#
 #####################
 # FUNCTIONS START	#
 #####################
@@ -12,10 +15,14 @@ installPrequisites () {
 	cd /root/install/
 	#
 	SNAPSHOT_IMAGEBUILDER="https://downloads.openwrt.org/snapshots/targets/ath79/generic/openwrt-imagebuilder-ath79-generic.Linux-x86_64.tar.xz"
-	OPENWRT_VERSION="21.02.0-rc4"
+	OPENWRT_VERSION="21.02.1"
 	RELEASE_IMAGEBUILDER_FILENAME="openwrt-imagebuilder-${OPENWRT_VERSION}-ath79-generic.Linux-x86_64.tar.xz"
 	if [ ! -f "/root/install/${RELEASE_IMAGEBUILDER_FILENAME}" ]; then
 		wget -P /root/install/ "https://downloads.openwrt.org/releases/${OPENWRT_VERSION}/targets/ath79/generic/${RELEASE_IMAGEBUILDER_FILENAME}"
+	fi
+	TARGET_DIR_NAME="/root/$(echo "${RELEASE_IMAGEBUILDER_FILENAME}" | sed "s/\.tar\.xz$//")"
+	if [ ! -d "${TARGET_DIR_NAME}" ]; then
+		echo "[INFO] installPrequisites: Extracting to [${TARGET_DIR_NAME}]"
 		tar xJf "/root/install/${RELEASE_IMAGEBUILDER_FILENAME}" -C /root/
 	fi
 	return 0
@@ -24,7 +31,10 @@ installPrequisites () {
 
 generatePackageList () {
 	# Syntax:
-	#	generatePackageList
+	#	generatePackageList "[logd|syslog-ng]"
+	#
+	# Called By:
+	# 	buildImage
 	#
 	# Consts
 	INSTALL_BATMANADV="1"
@@ -33,6 +43,9 @@ generatePackageList () {
 	INSTALL_RELAYD="0"
 	INSTALL_WIFI_NON_CT_DRIVERS="1"
 	REPLACE_LOGD_BY_SYSLOG_NG="0"
+	if [ "${1}" = "syslog-ng" ]; then
+		REPLACE_LOGD_BY_SYSLOG_NG="1"
+	fi
 	#
 	# Variables
 	PKG_TO_INSTALL=""
@@ -56,6 +69,9 @@ generatePackageList () {
 	#
 	# Base system
 	PKG_TO_INSTALL="${PKG_TO_INSTALL} bash curl htop logrotate lua luafilesystem luci mailsend terminfo tcpdump"
+	#
+	# Monitoring interface
+	PKG_TO_INSTALL="${PKG_TO_INSTALL} snmpd"
 	#
 	# FTP service
 	PKG_TO_INSTALL="${PKG_TO_INSTALL} vsftpd"
@@ -90,29 +106,43 @@ generatePackageList () {
 	echo "${PKG_TO_REMOVE} ${PKG_TO_INSTALL}"
 	return 0
 }
+
+
+buildImage () {
+	#
+	# Syntax:
+	# 	buildImage "[logd|syslog-ng]"
+	#
+	PACKAGE_LIST="$(generatePackageList "${1}")"
+	# echo "[INFO] PACKAGE_LIST=[${PACKAGE_LIST}]"
+	#
+	make image FILES="/root/openwrt/imagebuilder-files/" PROFILE="tplink_archer-c7-v2" PACKAGES="${PACKAGE_LIST}" BIN_DIR="${WORKDIR}/tplink_archer-c7-v2" EXTRA_IMAGE_NAME="${1}"
+	make image FILES="/root/openwrt/imagebuilder-files/" PROFILE="tplink_archer-c7-v5" PACKAGES="${PACKAGE_LIST}" BIN_DIR="${WORKDIR}/tplink_archer-c7-v5" EXTRA_IMAGE_NAME="${1}"
+	#
+	return 0
+}
+
+
 #####################
 # FUNCTIONS END		#
 #####################
 #
 installPrequisites
 #
-# Generate package list.
-PACKAGE_LIST="$(generatePackageList)"
-echo "[INFO] PACKAGE_LIST=[${PACKAGE_LIST}]"
-#
-# Build image.
 WORKDIR="$(find /root/ -maxdepth 1 -type d -name "openwrt-imagebuilder*" | head -1)"
 echo "[INFO] WORKDIR=${WORKDIR}"
 cd "${WORKDIR}"
 echo "[INFO] --- Press any key to continue ---"
 read -r 1 2>/dev/null
 echo ""
+#
 # make info | grep tplink
 # make clean
 #
-make image FILES="/root/openwrt/imagebuilder-files/" PROFILE="tplink_archer-c7-v2" PACKAGES="${PACKAGE_LIST}"
-make image FILES="/root/openwrt/imagebuilder-files/" PROFILE="tplink_archer-c7-v5" PACKAGES="${PACKAGE_LIST}"
+# Build image.
+buildImage "logd"
+buildImage "syslog-ng"
 #
-ls -al /root/openwrt-imagebuilder*/bin/targets/ath79/generic/*.bin
+find ./tplink_archer-c7-v* -type f | grep ".*\.bin$"
 #
 exit 0
