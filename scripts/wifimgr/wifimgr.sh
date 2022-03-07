@@ -222,9 +222,14 @@ generateDeviceConfig ()
 			fi
 			#
 			# MAC filter entries can be restricted to a list of given access points.
-			## Example: This MAC address is never listed on the access point "og".
-			### list maclist 'aa:bb:cc:dd:ee:ff'		# removeUseCase:og
+			## Example: This MAC address is never listed on the access point "upstairs".
+			### list maclist 'aa:bb:cc:dd:ee:ff'		# removeUseCase:upstairs
 			TMP_FILE_BUFFER="$(echo "${TMP_FILE_BUFFER}" | sed "/[ \t]*#\s*removeUseCase:.*${TMP_USE_CASE_TAG}.*/d" | sed "s/[ \t]*#\s*removeUseCase:.*$//")"
+			#
+			# MAC filter entries can be restricted to a list of given radios.
+			## Example: This MAC address is never listed on the radio1 - 2.4 GHz.
+			### list maclist 'aa:bb:cc:dd:ee:ff'		# removeFromRadio:radio1
+			TMP_FILE_BUFFER="$(echo "${TMP_FILE_BUFFER}" | sed "/[ \t]*#\s*removeFromRadio:.*${radio}.*/d" | sed "s/[ \t]*#\s*removeFromRadio:.*$//")"
 			#
 			echo "${TMP_FILE_BUFFER}" >> "${TMP_CFG_WIRELESS}"
 			echo "" >> "${TMP_CFG_WIRELESS}"
@@ -297,7 +302,7 @@ updateDeviceConfig ()
 {
 	#
 	# Syntax:			updateDeviceConfig [device_ip] [use_case_tag] [device_manufacturer_model] [commit_delay_secs]
-	# Example:			updateDeviceConfig "192.168.1.1" "og" "archer-c7-v2" "0"
+	# Example:			updateDeviceConfig "192.168.1.1" "upstairs" "archer-c7-v2" "0"
 	# Called By:		MAIN
 	#
 	# Global vars:
