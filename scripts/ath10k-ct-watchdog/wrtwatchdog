@@ -19,7 +19,7 @@
 # opkg install bash
 # chmod +x "/root/wrtwatchdog"
 # chmod +x "/root/wrtwatchdog_main.sh"
-# bash "/root/wrtwatchdog start"
+# bash "/root/wrtwatchdog" start
 #
 #
 # Variables:
