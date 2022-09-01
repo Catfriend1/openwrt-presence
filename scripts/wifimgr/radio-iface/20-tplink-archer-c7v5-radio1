@@ -6,5 +6,6 @@ config wifi-device 'radio1'
 	option htmode 'HT40'
 	option txpower '20'
 	option country 'DE'
-	option legacy_rates '0'
+# LDPC = off will only affect TP-Link Archer C7v2 devices.
+	option ldpc '0'
 	option disabled '0'
