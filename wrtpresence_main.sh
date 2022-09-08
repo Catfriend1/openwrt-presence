@@ -145,7 +145,7 @@ DEVICE_DISCONNECTED_IDX="10"
 CONFIG_WIFI_STA_REPORTS_ENABLED="1"
 #
 # Optional: Enable wrtbtdevreport bluetooth reports by the local device
-CONFIG_BLUETOOTH_REPORTS_ENABLED="1"
+CONFIG_BLUETOOTH_REPORTS_ENABLED="0"
 #
 # -----------------------
 # --- Function Import ---
@@ -378,7 +378,7 @@ logreader() {
 	# Global Variables.
 	# 	[IN] ASSOCIATIONS_DTO
 	# 
-	logAdd -q "[INFO] BEGIN logreader_loop"
+	logAdd -q "[INFO] BEGIN logreader"
 	#
 	LOGREAD_BIN="$(which logread)"
 	if ( opkg list "syslog-ng" | grep -q "syslog-ng" ); then
@@ -389,6 +389,13 @@ logreader() {
 		LOGREAD_SOURCE_PREFIX="daemon\.notice"
 	fi
 	#
+	if [ ! -f "/var/log/messages" ]; then
+		logAdd -q "[INFO] logreader: Waiting for /var/log/messages"
+	fi
+	while [ ! -f "/var/log/messages" ]; do
+		sleep 2
+	done
+	logAdd -q "[INFO] BEGIN logreader_loop"
 	${LOGREAD_BIN} -f | while read line; do
 		if $(echo -n "${line}" | grep -q "${LOGREAD_SOURCE_PREFIX}.*hostapd.*\(AP-STA-CONNECTED\|AP-STA-DISCONNECTED\)"); then
 			if $(echo -n "${line}" | grep -q "AP-STA-CONNECTED"); then
