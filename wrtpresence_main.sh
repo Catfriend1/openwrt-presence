@@ -400,13 +400,13 @@ logreader() {
 		if $(echo -n "${line}" | grep -q "${LOGREAD_SOURCE_PREFIX}.*hostapd.*\(AP-STA-CONNECTED\|AP-STA-DISCONNECTED\)"); then
 			if $(echo -n "${line}" | grep -q "AP-STA-CONNECTED"); then
 				STATION_NAME="$(echo -n "${line}" | grep -o "${LOGREAD_SOURCE_PREFIX}")"
-				WIFI_IF_NAME="$(echo -n "${line}" | grep -o -E "wlan[[:xdigit:]]{1}(-[[:xdigit:]]{1,})?")"
+				WIFI_IF_NAME="$(echo -n "${line}" | grep -o -E "(wlan|phy)[[:xdigit:]]{1}(-(ap)?[[:xdigit:]]{1,})?")"
 				MAC_ADDR="$(echo -n "${line}" | grep -o -E "([[:xdigit:]]{1,2}:){5}[[:xdigit:]]{1,2}")"
 				# fifoOut_do "${EVENT_FIFO}" "CONNECT: ${MAC_ADDR} on ${STATION_NAME}"
 				plAddClient "${STATION_NAME}_${WIFI_IF_NAME}" "${MAC_ADDR}" "AP-STA-CONNECTED"
 			elif $(echo -n "${line}" | grep -q "AP-STA-DISCONNECTED"); then
 				STATION_NAME="$(echo -n "${line}" | grep -o "${LOGREAD_SOURCE_PREFIX}")"
-				WIFI_IF_NAME="$(echo -n "${line}" | grep -o -E "wlan[[:xdigit:]]{1}(-[[:xdigit:]]{1,})?")"
+				WIFI_IF_NAME="$(echo -n "${line}" | grep -o -E "(wlan|phy)[[:xdigit:]]{1}(-(ap)?[[:xdigit:]]{1,})?")"
 				MAC_ADDR="$(echo -n "${line}" | grep -o -E "([[:xdigit:]]{1,2}:){5}[[:xdigit:]]{1,2}")"
 				# fifoOut_do "${EVENT_FIFO}" "DISCONNECT: ${MAC_ADDR} on ${STATION_NAME}"
 				plMarkClientAsDisconnected "${STATION_NAME}_${WIFI_IF_NAME}" "${MAC_ADDR}" "AP-STA-DISCONNECTED"
@@ -479,7 +479,7 @@ logreader() {
 							continue
 						fi
 					else
-						if ( echo "${WIFI_IF_NAME}" | grep -q "wlan.*" ); then
+						if ( echo "${WIFI_IF_NAME}" | grep -q  "wlan\|phy.*" ); then
 							# Skip WiFi devices as they are not contained in wrtbtdevreport messages.
 							continue
 						fi
@@ -662,7 +662,7 @@ fi
 if ( ! grep -q "option cronloglevel '9'$" "/etc/config/system" ); then
 	logAdd "[WARN] Cron log level is not reduced to \"warning\" in \"/etc/config/system\". Set \"option cronloglevel '9'\"."
 fi
-# 
+#
 if [ "${CONFIG_WIFI_STA_REPORTS_ENABLED}" = "1" ]; then
 	if [ ! -f "/root/wrtwifistareport.sh" ]; then
 		logAdd "[ERROR] File missing: \"/root/wrtwifistareport.sh\". Stop."
