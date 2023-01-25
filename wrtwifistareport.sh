@@ -31,7 +31,7 @@ dumpLocalAssociatedStations ()
 	# 
 	# Get all wlan interfaces with sub-SSIDs:
 	# e.g. wlan0, wlan0-1, wlan0-2, wlan1, wlan1-1, wlan1-2, ...
-	iw dev | grep -F "wlan" | cut -d " " -f 2 | while read file;
+	iw dev | grep "wlan\|phy" | grep -v "phy#" | cut -d " " -f 2 | while read file;
 	do
 		#
 		# "file" contains one SSID Wifi Interface, e.g. "wlan0-1"
@@ -40,7 +40,7 @@ dumpLocalAssociatedStations ()
 		# 	echo -n "$(iw dev "${file}" station dump 2> /dev/null | grep -Fi "on wlan" | cut -d " " -f 2 | sed "s/^/${file},/" | tr '\n' '|')"
 		# 
 		# Get authorized stations of current wlanX interface.
-		echo -n "$(iw dev "${file}" station dump 2> /dev/null | grep "\(on wlan\|authorized:*.\)" | grep -B 1 "^.*authorized:.*yes$" | grep -v "^.*authorized:.*$" | cut -d " " -f 2 | sed "s/^/${file},/" | tr '\n' '|')"
+		echo -n "$(iw dev "${file}" station dump 2> /dev/null | grep "\(on ${file}\|authorized:*.\)" | grep -B 1 "^.*authorized:.*yes$" | grep -v "^.*authorized:.*$" | cut -d " " -f 2 | sed "s/^/${file},/" | tr '\n' '|')"
 		# 
 	done
 	#
