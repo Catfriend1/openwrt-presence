@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Version 1.2
+# Version 1.6
 #
 #########################
 # LIBRARY FUNCTIONS		#
@@ -13,6 +13,7 @@ libTMlogAdd ()
 	TMP_LOGSTREAM="$(tail -n ${TMP_LOG_MAX_LINES} ${TMP_LOGFILE} 2>/dev/null)"
 	echo "${TMP_LOGSTREAM}" > "$TMP_LOGFILE"
 	echo "$(date '+%Y-%m-%d [%H-%M-%S]') ${TMP_SCRIPT_FULLFN%.*} $*" | tee -a "${TMP_LOGFILE}"
+	chmod 0666 "${TMP_LOGFILE}"
 	return 0
 }
 
@@ -107,7 +108,11 @@ sendTelegramNotification ()
 	# 	"2" : FAILURE - attachment too large
 	#
 	# Consts.
-	TMP_STN_CURL_TIMEOUT="60"
+	## Fast DSL
+	### TMP_STN_CURL_TIMEOUT="60"
+	#
+	## Slow DSL
+	TMP_STN_CURL_TIMEOUT="140"
 	TMP_STN_ID_CACHE="/tmp/telegram_sent_messages.txt"
 	#
 	# Variables.
@@ -163,6 +168,7 @@ sendTelegramNotification ()
 		STN_MESSAGE_ID="$(echo "${STN_CURL_RESULT}" | grep -o -E "\"message_id\":[0-9]+" | cut -d ':' -f 2)"
 		echo "${LIB_TELEGRAM_CHAT_ID}=${STN_MESSAGE_ID}|${STN_TEXT}" | tr -d '\n' >> "${TMP_STN_ID_CACHE}"
 		echo "" >> "${TMP_STN_ID_CACHE}"
+		chmod 0666 "${TMP_STN_ID_CACHE}"
 		return 0
 	fi
 	#
@@ -172,13 +178,21 @@ sendTelegramNotification ()
 	STN_ATTACHMENT_IDX=0
 	for stnFullFn in ${STN_ATTACHMENTS}; do
 		STN_ATTACHMENT_IDX="$((STN_ATTACHMENT_IDX+1))"
+		STN_ATTACHMENT_TYPE="photo"
+		if [ "${stnFullFn##*.}" = "mp4" ]; then
+			STN_ATTACHMENT_TYPE="video"
+		elif [ "${stnFullFn##*.}" = "diff" ]; then
+			STN_ATTACHMENT_TYPE="document"
+		elif [ "${stnFullFn##*.}" = "txt" ]; then
+			STN_ATTACHMENT_TYPE="document"
+		fi
 		if [ -z "${STN_MEDIA_PARAMS}" ]; then
 			# First picture gets the text.
-			STN_MEDIA_PARAMS="{\"type\":\"photo\",\"media\":\"attach://photo_${STN_ATTACHMENT_IDX}\",\"caption\":\"${STN_TEXT}\"}"
+			STN_MEDIA_PARAMS="{\"type\":\"${STN_ATTACHMENT_TYPE}\",\"media\":\"attach://${STN_ATTACHMENT_TYPE}_${STN_ATTACHMENT_IDX}\",\"caption\":\"${STN_TEXT}\"}"
 		else
-			STN_MEDIA_PARAMS="${STN_MEDIA_PARAMS},{\"type\":\"photo\",\"media\":\"attach://photo_${STN_ATTACHMENT_IDX}\",\"caption\":\"\"}"
+			STN_MEDIA_PARAMS="${STN_MEDIA_PARAMS},{\"type\":\"${STN_ATTACHMENT_TYPE}\",\"media\":\"attach://${STN_ATTACHMENT_TYPE}_${STN_ATTACHMENT_IDX}\",\"caption\":\"\"}"
 		fi
-		STN_ATTACHMENT_JSON="${STN_ATTACHMENT_JSON} -F "\"photo_${STN_ATTACHMENT_IDX}=@${stnFullFn}\"""
+		STN_ATTACHMENT_JSON="${STN_ATTACHMENT_JSON} -F "\"${STN_ATTACHMENT_TYPE}_${STN_ATTACHMENT_IDX}=@${stnFullFn}\"""
 	done
 	#
 	STN_CURL_RESULT="$(eval curl -q \
