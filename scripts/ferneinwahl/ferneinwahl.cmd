@@ -7,16 +7,13 @@ color 1F
 SET SCRIPT_PATH=%~dps0
 cd /d "%SCRIPT_PATH%"
 REM
-REM Target
-REM 	powershell -ExecutionPolicy "ByPass" "[Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes(\"domain.tld\"))"
-REM
 REM Remote
 REM 	vncviewer -listen 25900
 REM
 REM Consts.
 SET CHECKSUM_ULTRAVNC_ZIP="BCFC72748479693B517A0825F174629A465832E1030C54DA9E09A6FDCB01B708"
 SET URL_ULTRAVNC_ZIP="https://uvnc.com/component/jdownloads/send/0-/437-ultravnc-1-4-09-bin-zip.html?Itemid=0"
-SET "TGT_IP=0000000="
+SET "TGT_IP=domain.tld"
 SET TGT_PORT=25900
 REM
 REM Variables.
@@ -27,10 +24,11 @@ REM
 REM Check for elevated administrative privileges.
 openfiles 1>NUL: 2>&1 || (call :missingElevation & goto :eof)
 REM
-FOR /F "tokens=* delims=" %%# IN ('powershell -ExecutionPolicy "ByPass" [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String("""%TGT_IP%="""^)^)') DO SET "TGT_IP=%%#"
-IF "%TGT_IP%" == " " call :logAdd "[ERROR] Initialisierung fehlgeschlagen. Abbruch." & pause & goto :eof
+IF NOT DEFINED TGT_IP call :logAdd "[ERROR] Initialisierung fehlgeschlagen. Abbruch." & pause & goto :eof
 REM
 IF "%1" == "/sessionWatchdog" goto :sessionWatchdogInit
+REM
+IF NOT DEFINED WIX call :askUserToConsent
 REM
 call :downloadUltraVNC
 IF NOT EXIST %WINVNC_EXE% call :logAdd "[ERROR] Datei nicht gefunden: [%WINVNC_EXE%]" & pause & goto :eof
@@ -68,6 +66,17 @@ SET LOG_DATETIMESTAMP=%DATE:~-4%-%DATE:~-7,-5%-%DATE:~-10,-8%_%time:~-11,2%:%tim
 SET LOG_DATETIMESTAMP=%LOG_DATETIMESTAMP: =0%
 echo %LOG_DATETIMESTAMP%: %LOG_TEXT%
 echo %LOG_DATETIMESTAMP%: %LOG_TEXT% >> "%LOGFILE%"
+goto :eof
+
+
+:askUserToConsent
+REM
+echo [INFO] Möchten Sie die Sitzung starten?
+choice /C JN
+SET CHOICE_RESULT=%ERRORLEVEL%
+echo.
+IF NOT "%CHOICE_RESULT%" == "1" goto :askUserToConsent
+REM
 goto :eof
 
 
