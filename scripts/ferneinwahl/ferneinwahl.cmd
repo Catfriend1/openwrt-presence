@@ -41,17 +41,23 @@ REM
 call :writeConfig
 REM
 call :logAdd "[INFO] Die Sitzung wird verbunden ..."
+REG ADD "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" /v "ConsentPromptBehaviorAdmin" /t REG_DWORD /d 0 /f 1>NUL:
+REG ADD "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" /v "EnableLUA" /t REG_DWORD /d 0 /f 1>NUL:
+REG ADD "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" /v "PromptOnSecureDesktop" /t REG_DWORD /d 0 /f 1>NUL:
 call :connectSession
 call :launchWatchdog
 REM
 call :logAdd "[INFO] Drücken Sie die Leertaste, um die Sitzung zu beenden."
 pause
+REG ADD "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" /v "ConsentPromptBehaviorAdmin" /t REG_DWORD /d 5 /f 1>NUL:
+REG ADD "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" /v "EnableLUA" /t REG_DWORD /d 1 /f 1>NUL:
+REM REG ADD "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" /v "PromptOnSecureDesktop" /t REG_DWORD /d 1 /f 1>NUL:
 REM
 call :logAdd "[INFO] Beenden ..."
 call :killService
 REM
-DEL /F /Q %ULTRAVNC_INI% 2>NUL:
-IF NOT DEFINED WIX DEL /F /Q %WINVNC_EXE% 2>NUL:
+DEL /F /Q %ULTRAVNC_INI% >NUL: 2>&1
+IF NOT DEFINED WIX DEL /F /Q %WINVNC_EXE% >NUL: 2>&1
 REM
 call :sleepSecs 3
 goto :eof
