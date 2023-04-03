@@ -30,10 +30,12 @@ IF "%1" == "/sessionWatchdog" goto :sessionWatchdogInit
 REM
 IF NOT DEFINED WIX call :askUserToConsent
 REM
-call :downloadUltraVNC
+IF NOT EXIST %WINVNC_EXE% call :downloadUltraVNC
 IF NOT EXIST %WINVNC_EXE% call :logAdd "[ERROR] Datei nicht gefunden: [%WINVNC_EXE%]" & pause & goto :eof
 REM
 call :logAdd "[INFO] Initialisiere ..."
+REM
+nslookup "%TGT_IP%" 2>NUL: | findstr "Name:" >NUL: || (call :logAdd "[ERROR] Die Gegenstelle wurde nicht gefunden. Abbruch." & pause & goto :eof)
 REM
 REM Verify download.
 powershell -ExecutionPolicy "ByPass" (Get-FileHash -Path %WINVNC_EXE%).Hash | findstr %CHECKSUM_ULTRAVNC_ZIP% >NUL: 2>&1 || (call :logAdd "[ERROR] Die Checksumme stimmt nicht. Abbruch." & pause & goto :eof)
@@ -101,18 +103,28 @@ goto :eof
 
 :downloadUltraVNC
 REM
-IF EXIST %WINVNC_EXE% goto :eof
-REM
 SET ULTRAVNC_ZIP="%TEMP%\ultravnc.zip"
 REM
-call :logAdd "[INFO] Die Anwendung wird heruntergeladen ..."
-IF NOT EXIST %ULTRAVNC_ZIP% call :psDownloadFile %URL_ULTRAVNC_ZIP% %ULTRAVNC_ZIP%
+IF NOT EXIST %ULTRAVNC_ZIP% call :logAdd "[INFO] Die Anwendung wird heruntergeladen ..." & call :psDownloadFile %URL_ULTRAVNC_ZIP% %ULTRAVNC_ZIP%
+IF NOT EXIST %ULTRAVNC_ZIP% call :logAdd "[ERROR] Downloadfehler, code #1." & goto :eof
+call :getFileSize %ULTRAVNC_ZIP% FILE_SIZE
+IF "%FILE_SIZE%" == "" call :logAdd "[ERROR] Downloadfehler, code #2." & goto :eof
+IF %FILE_SIZE% LSS 5242880 call :logAdd "[ERROR] Downloadfehler, code #3." & DEL /F /Q %ULTRAVNC_ZIP% 2>NUL: & goto :eof
+REM
 MD "%TEMP%\ultravnc" 2>NUL:
 call :psExpandArchive %ULTRAVNC_ZIP% "%TEMP%\ultravnc"
 DEL /F /Q %ULTRAVNC_ZIP% 2>NUL:
 copy /y "%TEMP%\ultravnc\x64\winvnc.exe" %WINVNC_EXE% 1>NUL:
 RD /S /Q "%TEMP%\ultravnc" 2>NUL:
 REM
+goto :eof
+
+
+:getFileSize
+REM 
+REM Get file size to variable defined in parameter #2.
+SET %~2=%~z1
+REM 
 goto :eof
 
 
