@@ -74,12 +74,14 @@ SET "HSDM_DIR=%1"
 REM echo [DEBUG] handleSubDirMerge: [%HSDM_DIR%]
 REM
 SET "TARGET_MERGED_MP4_FULLFN=%SOURCE_FOLDER%%1.mp4"
+SET "TARGET_MERGED_LOG_FULLFN=%SOURCE_FOLDER%%1.log"
 DEL /F "%TARGET_MERGED_MP4_FULLFN%" 2>NUL:
 IF EXIST "%TARGET_MERGED_MP4_FULLFN%" echo [ERROR] File already exists: %TARGET_MERGED_MP4_FULLFN% & pause & goto :eof
 REM
 echo [INFO] Merging dir [%HSDM_DIR%] into [%TARGET_MERGED_MP4_FULLFN%] ...
-(FOR /R %%A IN (%HSDM_DIR%\*.mp4) DO @ECHO file '%%A') | sort | ffmpeg -loglevel error -protocol_whitelist file,pipe -f concat -safe 0 -i pipe: %FFMPEG_STREAM_MODE% "%TARGET_MERGED_MP4_FULLFN%"
+(FOR /R %%A IN (%HSDM_DIR%\*.mp4) DO @ECHO file '%%A') | sort | ffmpeg -loglevel error -protocol_whitelist file,pipe -f concat -safe 0 -i pipe: %FFMPEG_STREAM_MODE% "%TARGET_MERGED_MP4_FULLFN%" > %TARGET_MERGED_LOG_FULLFN% 2>&1
 SET FFMPEG_ERRORLEVEL=%ERRORLEVEL%
-IF NOT "%FFMPEG_ERRORLEVEL%" == "0" echo [ERROR] ffmpeg FAILED, code #%FFMPEG_ERRORLEVEL%. & pause & goto :eof
+IF NOT "%FFMPEG_ERRORLEVEL%" == "0" echo [ERROR] ffmpeg FAILED, code #%FFMPEG_ERRORLEVEL%. >> %TARGET_MERGED_LOG_FULLFN%
+IF NOT "%FFMPEG_ERRORLEVEL%" == "0" echo [ERROR] ffmpeg FAILED, code #%FFMPEG_ERRORLEVEL%. & goto :eof
 REM
 goto :eof
