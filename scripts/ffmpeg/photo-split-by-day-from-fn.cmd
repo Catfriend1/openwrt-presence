@@ -72,7 +72,7 @@ DEL /F "%TARGET_MERGED_MP4_FULLFN%" 2>NUL:
 IF EXIST "%TARGET_MERGED_MP4_FULLFN%" echo [ERROR] File already exists: %TARGET_MERGED_MP4_FULLFN% & pause & goto :eof
 REM
 echo [INFO] Merging dir [%HSDM_DIR%] into [%TARGET_MERGED_MP4_FULLFN%] ...
-(FOR /R %%A IN (%HSDM_DIR%\*.mp4) DO @ECHO file '%%A') | ffmpeg -loglevel error -protocol_whitelist file,pipe -f concat -safe 0 -i pipe: -vcodec copy -acodec copy "%TARGET_MERGED_MP4_FULLFN%"
+(FOR /R %%A IN (%HSDM_DIR%\*.mp4) DO @ECHO file '%%A') | sort | ffmpeg -loglevel error -protocol_whitelist file,pipe -f concat -safe 0 -i pipe: %FFMPEG_STREAM_MODE% "%TARGET_MERGED_MP4_FULLFN%"
 SET FFMPEG_ERRORLEVEL=%ERRORLEVEL%
 IF NOT "%FFMPEG_ERRORLEVEL%" == "0" echo [ERROR] ffmpeg FAILED, code #%FFMPEG_ERRORLEVEL%. & pause & goto :eof
 REM
