@@ -8,6 +8,12 @@ REM
 REM Consts.
 SET MOVE_FILES_TO_SUBFOLDERS=1
 SET MERGE_MP4_FILES=1
+SET REENCODE_VIDEO=1
+REM
+IF "%REENCODE_VIDEO%" == "0" SET "FFMPEG_STREAM_MODE=-vcodec copy -acodec copy"
+IF NOT "%REENCODE_VIDEO%" == "0" SET "FFMPEG_STREAM_MODE=-filter:v "scale=hd1080,fps=30" -c:v libx265 -vtag hvc1 -crf 28 -c:a aac -b:a 192k"
+REM MP3
+REM 	-c:a libmp3lame -b:a 192k
 REM
 REM Check prerequisites.
 where ffmpeg >NUL 2>&1 || (echo [ERROR] ffmpeg not found. & pause & goto :eof)
