@@ -26,6 +26,9 @@ FOR /F "delims=" %%A in ('DIR /B "%SOURCE_FOLDER%\*.*" 2^>NUL:') DO call :handle
 REM
 IF "%MERGE_MP4_FILES%" == "1" call :handleSubDirs
 REM
+echo [INFO] Collecting errors ...
+grep -r -f *.log | grep -i error > errors.txt
+REM
 pause
 REM timeout 3
 goto :eof
