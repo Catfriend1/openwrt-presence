@@ -9,6 +9,7 @@ REM Consts.
 SET MOVE_FILES_TO_SUBFOLDERS=1
 SET MERGE_MP4_FILES=1
 SET REENCODE_VIDEO=1
+SET ANALYSE_LOGS=1
 REM
 IF "%REENCODE_VIDEO%" == "0" SET "FFMPEG_STREAM_MODE=-vcodec copy -acodec copy"
 IF NOT "%REENCODE_VIDEO%" == "0" SET "FFMPEG_STREAM_MODE=-filter:v "scale=hd1080,fps=30" -c:v libx265 -vtag hvc1 -crf 28 -c:a aac -b:a 192k"
@@ -27,7 +28,7 @@ REM
 IF "%MERGE_MP4_FILES%" == "1" call :handleSubDirs
 REM
 echo [INFO] Collecting errors ...
-grep -r -f *.log | grep -i error > errors.txt
+IF "%ANALYSE_LOGS%" == "1" grep -l -i "error" *.log > "files-with-errors.txt"
 REM
 pause
 REM timeout 3
