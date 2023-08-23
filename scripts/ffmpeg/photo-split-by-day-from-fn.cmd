@@ -66,3 +66,11 @@ IF NOT "%FFMPEG_ERRORLEVEL%" == "0" echo [ERROR] ffmpeg FAILED, code #%FFMPEG_ER
 IF NOT "%FFMPEG_ERRORLEVEL%" == "0" echo [ERROR] ffmpeg FAILED, code #%FFMPEG_ERRORLEVEL%. & goto :eof
 REM
 goto :eof
+
+
+:moveFilesToSubFolders
+REM
+echo [INFO] Preparing to move files to subfolders ...
+FOR /F "delims=" %%A in ('DIR /B "%SOURCE_FOLDER%\*.*" 2^>NUL:') DO call :moveFilesToSubFoldersHandleFile %%A
+REM
+goto :eof
