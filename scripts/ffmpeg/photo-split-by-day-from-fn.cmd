@@ -102,7 +102,10 @@ REM Variables.
 SET "HF_FILENAME=%1"
 REM
 REM Skip unsupported file types.
+IF /I "%~x1" == "" goto :eof
 IF /I "%~x1" == ".cmd" goto :eof
+IF /I "%~x1" == ".log" goto :eof
+IF /I "%~x1" == ".txt" goto :eof
 REM
 SET "HF_CLEANED_FILENAME=%HF_FILENAME:PXL_=%"
 SET "DATE_YYMMDD=!HF_CLEANED_FILENAME:~0,8!"
