@@ -28,7 +28,7 @@ REM
 IF "%MERGE_MP4_FILES%" == "1" call :handleSubDirs
 REM
 echo [INFO] Collecting errors ...
-IF "%ANALYSE_LOGS%" == "1" grep -l -i "error" *.log > "files-with-errors.txt"
+IF "%ANALYSE_LOGS%" == "1" grep -l -i "error" *.log > "files-with-errors.txt" & TYPE "files-with-errors.txt" 2>NUL:
 REM
 pause
 REM timeout 3
