@@ -97,3 +97,10 @@ IF "%MOVE_FILES_TO_SUBFOLDERS%" == "1" MOVE "%SOURCE_FOLDER%\!HF_FILENAME!" "%TA
 IF NOT "%MOVE_FILES_TO_SUBFOLDERS%" == "1" echo MOVE "%SOURCE_FOLDER%\!HF_FILENAME!" "%TARGET_SUB_FOLDER%"
 REM
 goto :eof
+
+
+:typeLoggedFirstErrors
+for /f "tokens=1-10 delims=" %%A in (%1) do (
+	echo %%A
+)
+goto :eof
