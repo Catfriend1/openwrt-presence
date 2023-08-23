@@ -12,7 +12,6 @@ REM Consts.
 SET MOVE_FILES_TO_SUBFOLDERS=1
 SET MERGE_MP4_FILES=1
 SET REENCODE_VIDEO=1
-SET ANALYSE_LOGS=1
 REM
 REM SET REENCODE_QUALITY=28
 SET REENCODE_QUALITY=30
@@ -40,17 +39,8 @@ IF "%MOVE_FILES_TO_SUBFOLDERS%" == "1" call :moveFilesToSubFolders
 REM
 IF "%MERGE_MP4_FILES%" == "1" call :handleSubDirs
 REM
-IF "%ANALYSE_LOGS%" == "1" echo. & call :analyseLogs 
-REM
 pause
 REM timeout 3
-goto :eof
-
-
-:analyseLogs
-echo [INFO] analyseLogs
-grep -l -i "error" *.log > "files-with-errors.txt"
-TYPE "files-with-errors.txt" 2>NUL:
 goto :eof
 
 
