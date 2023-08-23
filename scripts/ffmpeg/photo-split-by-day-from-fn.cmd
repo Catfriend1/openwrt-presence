@@ -5,6 +5,9 @@ REM
 cd /d "%~dps0"
 SET PATH=%PATH%;%ProgramFiles%\ffmpeg\bin
 REM
+REM Notes.
+REM 	If your video files use the prefix IMG_ copy and replace PXL_ with IMG_ here.
+REM
 REM Consts.
 SET MOVE_FILES_TO_SUBFOLDERS=1
 SET MERGE_MP4_FILES=1
