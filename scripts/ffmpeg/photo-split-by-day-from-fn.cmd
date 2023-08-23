@@ -33,12 +33,17 @@ IF "%MOVE_FILES_TO_SUBFOLDERS%" == "1" call :moveFilesToSubFolders
 REM
 IF "%MERGE_MP4_FILES%" == "1" call :handleSubDirs
 REM
-echo.
-echo [INFO] Collecting errors ...
-IF "%ANALYSE_LOGS%" == "1" grep -l -i "error" *.log > "files-with-errors.txt" & TYPE "files-with-errors.txt" 2>NUL:
+IF "%ANALYSE_LOGS%" == "1" echo. & call :analyseLogs 
 REM
 pause
 REM timeout 3
+goto :eof
+
+
+:analyseLogs
+echo [INFO] analyseLogs
+grep -l -i "error" *.log > "files-with-errors.txt"
+TYPE "files-with-errors.txt" 2>NUL:
 goto :eof
 
 
@@ -79,7 +84,7 @@ goto :eof
 
 :moveFilesToSubFolders
 REM
-echo [INFO] Preparing to move files to subfolders ...
+echo [INFO] moveFilesToSubFolders
 FOR /F "delims=" %%A in ('DIR /B "%SOURCE_FOLDER%\*.*" 2^>NUL:') DO call :moveFilesToSubFoldersHandleFile %%A
 REM
 goto :eof
