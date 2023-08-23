@@ -16,11 +16,11 @@ REM
 REM SET REENCODE_QUALITY=28
 SET REENCODE_QUALITY=30
 REM
-REM SET REENCODE_SCALE=hd1080
-SET REENCODE_SCALE=hd720
+SET REENCODE_SCALE=1920:1080
+REM SET REENCODE_SCALE:1280:720
 REM
 IF "%REENCODE_VIDEO%" == "0" SET "FFMPEG_STREAM_MODE=-vcodec copy -acodec copy"
-IF NOT "%REENCODE_VIDEO%" == "0" SET "FFMPEG_STREAM_MODE=-filter:v "scale=%REENCODE_SCALE%,fps=30" -c:v libx265 -vtag hvc1 -crf %REENCODE_QUALITY% -c:a aac -b:a 192k"
+IF NOT "%REENCODE_VIDEO%" == "0" SET "FFMPEG_STREAM_MODE= -filter:v "scale=%REENCODE_SCALE%:force_original_aspect_ratio=decrease,pad=%REENCODE_SCALE%:-1:-1:color=black,fps=30" -c:v libx265 -vtag hvc1 -crf %REENCODE_QUALITY% -c:a aac -b:a 192k"
 REM MP3
 REM 	-c:a libmp3lame -b:a 192k
 REM
