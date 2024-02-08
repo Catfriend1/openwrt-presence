@@ -80,7 +80,7 @@ TYPE "%TARGET_MERGED_LOG_FULLFN%" 2>NUL: | findstr /i "error" >NUL: && call :typ
 IF NOT "%FFMPEG_ERRORLEVEL%" == "0" echo [ERROR] ffmpeg FAILED, code #%FFMPEG_ERRORLEVEL%. >> "%TARGET_MERGED_LOG_FULLFN%"
 REM
 REM In case of SUCCESS.
-TYPE "%TARGET_MERGED_LOG_FULLFN%" 2>NUL: | findstr /i "error" >NUL: || DEL %TARGET_MERGED_LOG_FULLFN% 2>NUL:
+TYPE "%TARGET_MERGED_LOG_FULLFN%" 2>NUL: | findstr /i "error" >NUL: || DEL "%TARGET_MERGED_LOG_FULLFN%" 2>NUL:
 REM
 goto :eof
 
