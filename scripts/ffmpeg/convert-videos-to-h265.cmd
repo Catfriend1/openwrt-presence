@@ -2,6 +2,12 @@
 setlocal enabledelayedexpansion
 chcp 65001 >NUL:
 REM
+REM Restart with low priority.
+if "%1" neq "low" (
+    start /low "" "%~dpnx0" low
+    exit /b
+)
+REM
 cd /d "%~dps0"
 SET PATH=%PATH%;%ProgramFiles%\ffmpeg\bin
 REM
